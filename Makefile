@@ -21,5 +21,5 @@ pull-model:
 # Import the synthetic sample library and show a couple of exact queries
 demo:
 	l-space import data/sample/library.csv
-	l-space stalled
+	l-space series-gaps
 	l-space narrators

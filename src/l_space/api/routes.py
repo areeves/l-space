@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 
 from l_space.core.settings import Settings, get_settings
-from l_space.ingestion.loaders import load_csv
+from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import queries
 from l_space.library.models import Book
 from l_space.library.store import LibraryStore
@@ -25,19 +25,19 @@ def import_library(path: str, store: LibraryStore = Depends(get_store)) -> dict[
     csv_path = Path(path)
     if not csv_path.is_file():
         raise HTTPException(status_code=404, detail=f"No such file: {path}")
-    return {"imported": store.replace_all(load_csv(csv_path))}
+    return {"imported": store.replace_all(load_ale_csv(csv_path))}
 
 
-@router.get("/library/books", response_model=list[Book])
+@router.get("/library/books", response_model=list[Book], response_model_exclude={"raw"})
 def list_books(store: LibraryStore = Depends(get_store)) -> list[Book]:
     return store.all_books()
 
 
 @router.get("/library/narrators")
-def narrators(min_rating: float | None = None, store: LibraryStore = Depends(get_store)):
-    return queries.narrator_counts(store.all_books(), min_rating)
+def narrators(min_my_rating: float | None = None, store: LibraryStore = Depends(get_store)):
+    return queries.narrator_counts(store.all_books(), min_my_rating)
 
 
-@router.get("/library/stalled-series")
-def stalled_series(store: LibraryStore = Depends(get_store)):
-    return queries.stalled_series(store.all_books())
+@router.get("/library/series-gaps")
+def series_gaps(store: LibraryStore = Depends(get_store)):
+    return queries.series_gaps(store.all_books())
