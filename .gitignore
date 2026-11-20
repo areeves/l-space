@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Local config and secrets
+.env
+
+# Personal data: never commit your real library or generated databases
+data/private/
+data/*.db
+data/*.sqlite*
+*.local.csv
