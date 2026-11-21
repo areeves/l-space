@@ -95,6 +95,10 @@ How a question is answered:
 Routing is a short call where a mistake ruins the answer, while writing is the slow one, so
 they can use different models: set `L_SPACE_OLLAMA_ROUTER_MODEL` (for example `qwen2.5:7b`)
 to route with a larger model and keep a small one writing. Both stay loaded in Ollama.
+In the evals a 3B router (`llama3.2`) misrouted about one answerable question in five, while a
+7B router (`qwen2.5:7b`) got every answerable question right on both question sets, for
+roughly 4 s more per question and about 5 GB more RAM (details in `evals/README.md`).
+`make pull-model` pulls the router model too when that variable is set.
 
 `--show-plan` prints the plan, whether the draft passed the check, and timings. Recommendation
 and "what happens in this book" questions are deliberately `unsupported` for now.

@@ -121,3 +121,33 @@ def test_evaluate_uses_the_router_for_plans_and_the_writer_for_text(books):
     records = eval_run.evaluate(entries, books, writer, router)
     assert eval_run.summarize(records)["plan_match"] == 1.0
     assert writer.plan_calls == []  # the writer model was never asked to route
+
+
+def _record(latency, **overrides):
+    base = {
+        "unanswerable": False, "plan_match": True, "result_match": True, "abstained": False,
+        "grounded": True, "used_fallback": False, "router_error": None,
+        "latency_ms": latency, "route_ms": latency / 4, "write_ms": latency / 2,
+    }
+    return {**base, **overrides}
+
+
+def test_p95_is_nearest_rank_not_the_maximum():
+    # 20 samples: the 95th percentile is the 19th value. A cold-start outlier must not become "p95".
+    records = [_record(float(n)) for n in range(1, 20)] + [_record(127_000.0)]
+    summary = eval_run.summarize(records)
+    assert summary["latency_ms_p95"] == 19.0
+    assert summary["latency_ms_max"] == 127_000.0
+    assert summary["latency_ms_p50"] == 10.5
+
+
+def test_percentiles_with_a_single_sample():
+    summary = eval_run.summarize([_record(5.0)])
+    assert summary["latency_ms_p95"] == summary["latency_ms_max"] == 5.0
+
+
+def test_warm_up_loads_every_model_with_a_minimal_request():
+    first, second = FakeProvider("{}"), FakeProvider("{}")
+    eval_run.warm_up(first, second)
+    assert len(first.write_calls) == len(second.write_calls) == 1
+    assert first.max_tokens == second.max_tokens == [1]

@@ -16,14 +16,19 @@ Metrics:
   abstention     unanswerable questions should become ``unsupported``; answerable ones must not
   grounded       share of model-written answers that passed the grounding check
   fallback       share of answers where the model's wording was replaced by deterministic text
+  latency        p50, p95 (nearest rank) and max per question, after an untimed warm-up that
+                 loads the models; route_ms / write_ms split the two model calls
 """
 
 import argparse
 import json
+import math
 import statistics
 import sys
 import time
 from pathlib import Path
+
+import httpx
 
 from l_space.ask.answer import answer_question
 from l_space.ask.executor import execute
@@ -111,6 +116,13 @@ def validate_dataset(entries: list[dict], books: list[Book]) -> list[str]:
     return problems
 
 
+def warm_up(*providers) -> None:
+    """Load each model before timing starts, so a cold start (which can take minutes for a
+    7B model on an older CPU) is not counted as the latency of the first question."""
+    for provider in providers:
+        provider.generate("Hello", max_tokens=1)
+
+
 def evaluate(entries: list[dict], books: list[Book], provider, router=None) -> list[dict]:
     records = []
     for e in entries:
@@ -149,7 +161,8 @@ def summarize(records: list[dict]) -> dict:
     unanswerable = [r for r in records if r["unanswerable"]]
     drafts = [r for r in records if r["grounded"] is not None]
     latencies = sorted(r["latency_ms"] for r in records)
-    p95 = latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))] if latencies else None
+    # nearest-rank percentile: the smallest value with at least 95% of samples at or below it
+    p95 = latencies[math.ceil(0.95 * len(latencies)) - 1] if latencies else None
     route_times = [r["route_ms"] for r in records if r.get("route_ms") is not None]
     write_times = [r["write_ms"] for r in records if r.get("write_ms") is not None]
     return {
@@ -166,6 +179,7 @@ def summarize(records: list[dict]) -> dict:
         "router_errors": sum(bool(r["router_error"]) for r in records),
         "latency_ms_p50": round(statistics.median(latencies), 1) if latencies else None,
         "latency_ms_p95": p95,
+        "latency_ms_max": latencies[-1] if latencies else None,
         "route_ms_p50": round(statistics.median(route_times), 1) if route_times else None,
         "write_ms_p50": round(statistics.median(write_times), 1) if write_times else None,
     }
@@ -203,6 +217,9 @@ def main() -> int:
     parser.add_argument("--out", type=Path, help="Write full per-question results as JSON")
     parser.add_argument("--validate", action="store_true", help="Check the dataset only; no model")
     parser.add_argument(
+        "--no-warmup", action="store_true", help="Skip loading the models before timing starts"
+    )
+    parser.add_argument(
         "--fail-under", type=float, help="Exit 1 if result_match falls below this (0-1)"
     )
     args = parser.parse_args()
@@ -226,6 +243,17 @@ def main() -> int:
     router = (
         provider if router_model == model else OllamaProvider(url, router_model, settings.ollama_timeout)
     )
+    if not args.no_warmup:
+        print("Loading models (not timed)...", flush=True)
+        try:
+            warm_up(provider, *([router] if router is not provider else []))
+        except httpx.HTTPError as exc:
+            print(
+                f"Could not use the model ({exc}). Is it pulled? Try: "
+                f"docker compose exec ollama ollama pull {model} (or {router_model})",
+                file=sys.stderr,
+            )
+            return 2
     records = evaluate(entries, books, provider, router)
     summary = summarize(records)
     _print_report(summary, records, model, router_model)

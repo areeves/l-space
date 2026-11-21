@@ -33,6 +33,8 @@ change so the effect of each fix is visible.
 | 2026-11-21 | Same (`6cd90a6`) | held-out (14) | 0.800 | 0.800 | 1.00 | 1.00 | 18.1 s / 53.3 s |
 | 2026-11-21 | Lower/upper-bound and which-narrators rules (`257ecf2`) | questions (20) | 0.800 | 0.800 | 1.00 | 0.929 \*\* | 14.9 s / 61.4 s |
 | 2026-11-21 | Same (`257ecf2`) | held-out (16) | 0.833 | 0.833 | 1.00 | 1.00 | 14.6 s / 38.2 s |
+| 2026-11-21 | Router `qwen2.5:7b`, writer `llama3.2` (`c22f396`) | questions (20) | 1.00 | 1.00 | 1.00 | 1.00 | 15.1 s / 127.8 s † |
+| 2026-11-21 | Same (`c22f396`) | held-out (16) | 1.00 | 1.00 | 0.75 | 1.00 | 15.7 s / 125.8 s † |
 
 \* Scored by totals only, which let one wrong plan pass by coincidence (3 five-star books vs
 3 five-star narrators). The current scoring compares the returned rows, which by my reading
@@ -114,3 +116,37 @@ and no more prompt tuning is needed. If it does not, the interface is the proble
 candidates are naming fields after the user's words (`longer_than_minutes`, `rank_narrators`)
 and a short reasoning field before the operation. The held-out questions that failed in the
 latest run are now burned for that purpose, so fresh ones would be needed.
+
+† Every p95 in this log is really the slowest single question. The old calculation picked the
+last sorted value for any run of 13 to 20 questions, which is the maximum. For these two rows
+that maximum (about 126 s) is probably the 7B model loading from disk on the first question.
+The harness now loads the models before timing starts and reports a nearest-rank p95 and the
+max separately, so future rows are comparable.
+
+### Result: it was model capacity
+
+With the prompt unchanged and only the routing model swapped (`--router-model qwen2.5:7b`, the
+3B `llama3.2` still writing):
+
+| | 3B router | 7B router |
+|---|---|---|
+| tuning set plan / result match | 0.800 | **1.000** |
+| held-out plan / result match (12 answerable) | 0.833 | **1.000** |
+| route p50 | ~4 s | ~8 s |
+| total p50 | ~15 s | ~15 s |
+
+Routing is a short call and writing dominates the time, so a better router is cheap: about 4 s
+more routing for a result that went from roughly one wrong plan in five to none. It also needs
+about 5 GB more RAM with both models loaded.
+
+The held-out set is still uncontaminated by prompt tuning: it was not used to change the prompt
+after the failing run, only the model changed. The caveats are real, though. There are only
+12 answerable held-out questions, the sample library has 12 books, and none of this has been
+tried on the real library with natural phrasing.
+
+**The one miss is a known gap, not a routing bug.** "What's a good audiobook for a long road
+trip?" is a recommendation question, which is `unsupported` for now, but the 7B router read it
+as "long books" (`list_books`, `min_minutes: 600`, `sort: longest`). The result is true to the
+library but not an honest answer to "good". It is deliberately left untuned: recommendations
+are the next phase, and when a `recommend` operation exists this question should move from the
+unanswerable group to the answerable one.
