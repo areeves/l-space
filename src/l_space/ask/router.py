@@ -27,11 +27,17 @@ Filters (use null when the question does not ask for them):
 - author is who WROTE a book ("by", "written by"). narrator is who READ it ("narrated by",
   "read by"). Never put a narrator in author or an author in narrator.
 - series, category.
-- min_minutes: "longer than", "over", "at least". max_minutes: "shorter than", "under",
-  "less than", "at most". Convert hours to minutes (2 hours = 120).
+- min_minutes is a LOWER bound: the book is at least this long ("longer than", "over",
+  "more than", "beyond", "exceeding", "at least"). max_minutes is an UPPER bound: the book is
+  at most this long ("shorter than", "under", "below", "less than", "within", "at most").
+  Convert hours to minutes (2 hours = 120).
 - min_my_rating: the user's own star rating, "N stars or more".
 - sort is one of: title, longest, shortest, newest, oldest.
 Never invent filters the question did not ask for.
+
+When the question asks WHICH narrators or authors, or WHO, rather than which books, the op
+is narrator_counts or author_counts, even if it also filters by rating or length. Use
+list_books only to list books.
 
 Use "unsupported" when the question needs something the library does not record
 (see the list above), and put a short explanation in "reason". Leave "reason" null for every
@@ -54,6 +60,8 @@ Q: Which narrators do I own the most books from?
 A: {"op": "narrator_counts"}
 Q: Which authors have I given three stars or more?
 A: {"op": "author_counts", "min_my_rating": 3}
+Q: Which narrators read the books I scored two stars or more?
+A: {"op": "narrator_counts", "min_my_rating": 2}
 Q: Which books have I started but not finished?
 A: {"op": "in_progress"}
 Q: What happens at the end of Dragonfall?

@@ -1,13 +1,15 @@
 {"id": "h-count-author", "question": "How many books do I have by Dev Halloran?", "expect": {"op": "count_books", "author": "Dev Halloran"}, "expect_total": 2}
-{"id": "h-over-hours", "question": "Which of my books go beyond 16 hours?", "expect": {"op": "list_books", "min_minutes": 960}, "expect_total": 4}
 {"id": "h-quick", "question": "Do I own anything that runs less than 12 hours?", "expect": {"op": "list_books", "max_minutes": 720}, "expect_total": 3}
 {"id": "h-narrator", "question": "List the books Corin Ashdale reads.", "expect": {"op": "list_books", "narrator": "Corin Ashdale"}, "expect_total": 4}
 {"id": "h-authors", "question": "Which authors have the most books in my library?", "expect": {"op": "author_counts"}, "expect_total": 5}
 {"id": "h-series", "question": "What are the books in the Tidewatch series?", "expect": {"op": "list_books", "series": "Tidewatch"}, "expect_total": 3}
 {"id": "h-partway", "question": "Is there anything I'm currently partway through?", "expect": {"op": "in_progress"}, "expect_total": 1}
 {"id": "h-missing", "question": "Which series am I missing a book from?", "expect": {"op": "series_gaps"}, "expect_total": 1}
-{"id": "h-narrators-rated", "question": "Which narrators appear on books I rated at least four stars?", "expect": {"op": "narrator_counts", "min_my_rating": 4}, "expect_total": 3}
 {"id": "h-shortest", "question": "What is my shortest book?", "expect": {"op": "list_books", "sort": "shortest"}, "expect_total": 11, "expect_first_title": "Between the Tides"}
+{"id": "h-count-long", "question": "How many of my audiobooks are longer than 15 hours?", "expect": {"op": "count_books", "min_minutes": 900}, "expect_total": 5}
+{"id": "h-or-more", "question": "Which audiobooks last 17 hours or more?", "expect": {"op": "list_books", "min_minutes": 1020}, "expect_total": 3}
+{"id": "h-no-more-than", "question": "Which books would take me no more than 14 hours?", "expect": {"op": "list_books", "max_minutes": 840}, "expect_total": 4}
+{"id": "h-narrators-behind", "question": "Who are the narrators behind my four-star-and-up books?", "expect": {"op": "narrator_counts", "min_my_rating": 4}, "expect_total": 3}
 {"id": "h-unanswerable-trip", "question": "What's a good audiobook for a long road trip?", "expect": {"op": "unsupported"}}
 {"id": "h-unanswerable-bio", "question": "Tell me about the life of Ilsa Verrow.", "expect": {"op": "unsupported"}}
 {"id": "h-unanswerable-add", "question": "Add The Hollow Lantern to my wishlist.", "expect": {"op": "unsupported"}}

@@ -30,6 +30,7 @@ change so the effect of each fix is visible.
 |---|---|---|---|---|---|---|---|
 | 2026-11-20 | Baseline (PR #2) | questions | 0.692 | 0.769 \* | 0.80 | 0.917 | 17.9 s / 58.3 s |
 | 2026-11-21 | Prompt rules and examples, reason guard, row-level scoring (`6cd90a6`) | questions | 0.923 | 0.923 | 1.00 | 1.00 | 14.5 s / 54.5 s |
+| 2026-11-21 | Same (`6cd90a6`) | held-out (14) | 0.800 | 0.800 | 1.00 | 1.00 | 18.1 s / 53.3 s |
 
 \* Scored by totals only, which let one wrong plan pass by coincidence (3 five-star books vs
 3 five-star narrators). The current scoring compares the returned rows, which by my reading
@@ -53,4 +54,28 @@ with a rating filter instead of `narrator_counts`. Latency split (p50): routing 
 13.4 s, so the writing call is the expensive one.
 
 This row is on the tuning set, which the prompt was improved against, so treat it as an upper
-bound. The held-out row is the one to quote; it has not been run yet.
+bound. The held-out row is the one to quote.
+
+### Held-out run, and what it led to
+
+The first held-out run (14 questions) scored 0.800 for plan and result match, against 0.923 on the
+tuning set. That gap is the expected cost of tuning, and with 10 answerable questions each miss
+is 10 points, so the exact figure is noisy. Abstention (1.00) and grounding (1.00) held up on
+unseen questions. Latency split (p50): routing 3.9 s, writing 18.6 s on an older CPU.
+
+Both misses were patterns, not one-offs:
+
+- "go **beyond** 16 hours" became `max_minutes`. The prompt gave a keyword list and the model
+  followed it literally. The rule now describes `min_minutes` and `max_minutes` as a lower and
+  an upper bound, with the keywords as examples.
+- "Which **narrators** ... rated at least four stars" became `list_books`, the same failure as
+  `narrators-five-star` on the tuning set. Two independent questions failing the same way
+  made it systematic. The prompt now says a "which narrators / authors / who" question is
+  `narrator_counts` or `author_counts` even when it also filters, and has an example.
+
+Those two held-out questions were then used for tuning, so they moved into `questions.jsonl`
+(now 20) and four newly worded ones joined `heldout.jsonl` (now 16), testing the same
+patterns with different phrasing ("17 hours or more", "no more than 14 hours", "the narrators
+behind my four-star-and-up books", plus a count with a length filter). Scores from before and
+after this change are therefore not directly comparable on the held-out set. The next rows should
+rerun both sets.

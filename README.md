@@ -100,8 +100,8 @@ and "what happens in this book" questions are deliberately `unsupported` for now
 `evals/` holds two fixed question sets, run against the synthetic sample library so anyone can
 reproduce them:
 
-- `questions.jsonl`: 18 questions (13 answerable, 5 not) used while tuning the prompt.
-- `heldout.jsonl`: 14 differently-worded questions (10 answerable, 4 not) that are **never
+- `questions.jsonl`: 20 questions (15 answerable, 5 not) used while tuning the prompt.
+- `heldout.jsonl`: 16 differently-worded questions (12 answerable, 4 not) that are **never
   used for tuning**. Quote this score; the tuning set is optimistic by construction.
 
 ```bash

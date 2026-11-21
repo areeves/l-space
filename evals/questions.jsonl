@@ -11,6 +11,8 @@
 {"id": "top-authors", "question": "Who are my most-read authors?", "expect": {"op": "author_counts"}, "expect_total": 5}
 {"id": "longest", "question": "What's my longest book?", "expect": {"op": "list_books", "sort": "longest"}, "expect_total": 11, "expect_first_title": "The Saltmarch Omnibus"}
 {"id": "no-match", "question": "List the books by Ivy Thornfield.", "expect": {"op": "list_books", "author": "Ivy Thornfield"}, "expect_total": 0}
+{"id": "over-hours", "question": "Which of my books go beyond 16 hours?", "expect": {"op": "list_books", "min_minutes": 960}, "expect_total": 4}
+{"id": "narrators-rated", "question": "Which narrators appear on books I rated at least four stars?", "expect": {"op": "narrator_counts", "min_my_rating": 4}, "expect_total": 3}
 {"id": "unanswerable-weather", "question": "What's the weather in Boston?", "expect": {"op": "unsupported"}}
 {"id": "unanswerable-recommend", "question": "Recommend something like The Ember Crown.", "expect": {"op": "unsupported"}}
 {"id": "unanswerable-plot", "question": "Summarize the plot of The Cinder Throne.", "expect": {"op": "unsupported"}}
