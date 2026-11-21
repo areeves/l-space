@@ -16,3 +16,6 @@ data/private/
 data/*.db
 data/*.sqlite*
 *.local.csv
+
+# Local eval output
+evals/results*.json

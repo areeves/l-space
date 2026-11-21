@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/l-space.db")
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
+    # Generous by default: a first request on CPU has to load the model.
+    ollama_timeout: float = 300.0
     log_level: str = "INFO"
 
 

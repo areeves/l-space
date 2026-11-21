@@ -1,0 +1,18 @@
+{"id": "gaps", "question": "Do I have gaps in any of my series?", "expect": {"op": "series_gaps"}, "expect_total": 1}
+{"id": "count-author", "question": "How many books do I own by Maren Oakley?", "expect": {"op": "count_books", "author": "Maren Oakley"}, "expect_total": 4}
+{"id": "list-narrator", "question": "What has Joss Harlan narrated for me?", "expect": {"op": "list_books", "narrator": "Joss Harlan"}, "expect_total": 3}
+{"id": "in-progress", "question": "Which books am I in the middle of?", "expect": {"op": "in_progress"}, "expect_total": 1}
+{"id": "top-narrators", "question": "Which narrators do I listen to the most?", "expect": {"op": "narrator_counts"}, "expect_total": 3}
+{"id": "long-books", "question": "Which books run longer than 15 hours?", "expect": {"op": "list_books", "min_minutes": 900}, "expect_total": 5}
+{"id": "short-books", "question": "Show me anything shorter than an hour.", "expect": {"op": "list_books", "max_minutes": 60}, "expect_total": 1, "expect_first_title": "Between the Tides"}
+{"id": "list-author", "question": "List everything by Ilsa Verrow.", "expect": {"op": "list_books", "author": "Ilsa Verrow"}, "expect_total": 3}
+{"id": "narrators-five-star", "question": "Which narrators have I rated five stars?", "expect": {"op": "narrator_counts", "min_my_rating": 5}, "expect_total": 3}
+{"id": "list-series", "question": "What books are in the Guild of Thorns series?", "expect": {"op": "list_books", "series": "Guild of Thorns"}, "expect_total": 2}
+{"id": "top-authors", "question": "Who are my most-read authors?", "expect": {"op": "author_counts"}, "expect_total": 5}
+{"id": "longest", "question": "What's my longest book?", "expect": {"op": "list_books", "sort": "longest"}, "expect_total": 11, "expect_first_title": "The Saltmarch Omnibus"}
+{"id": "no-match", "question": "List the books by Ivy Thornfield.", "expect": {"op": "list_books", "author": "Ivy Thornfield"}, "expect_total": 0}
+{"id": "unanswerable-weather", "question": "What's the weather in Boston?", "expect": {"op": "unsupported"}}
+{"id": "unanswerable-recommend", "question": "Recommend something like The Ember Crown.", "expect": {"op": "unsupported"}}
+{"id": "unanswerable-plot", "question": "Summarize the plot of The Cinder Throne.", "expect": {"op": "unsupported"}}
+{"id": "unanswerable-wishlist", "question": "Which of my books are on my wishlist?", "expect": {"op": "unsupported"}}
+{"id": "unanswerable-delete", "question": "Delete all the podcasts from my library.", "expect": {"op": "unsupported"}}
