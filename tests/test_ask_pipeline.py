@@ -63,10 +63,10 @@ def test_two_invalid_plans_abstain(books):
 
 def test_writer_outage_falls_back_but_still_answers(books):
     class WriterDown(FakeProvider):
-        def generate(self, prompt, system=None, schema=None):
+        def generate(self, prompt, system=None, schema=None, max_tokens=None):
             if schema is None:
                 raise httpx.ConnectError("down")
-            return super().generate(prompt, system, schema)
+            return super().generate(prompt, system, schema, max_tokens)
 
     answer = answer_question("How many by Maren Oakley?", books, WriterDown('{"op": "count_books", "author": "Maren Oakley"}'))
     assert answer.text == "4 books match."
@@ -79,3 +79,26 @@ def test_count_answers_can_use_the_total(books):
     answer = answer_question("How many books do I own by Maren Oakley?", books, provider)
     assert answer.grounded is True
     assert answer.text == "You own 4 books by Maren Oakley."
+
+
+def test_plan_with_a_reason_is_treated_as_unsupported(books):
+    # Seen in a live run: the model wrote "no wishlist information" but picked list_books anyway.
+    plan = '{"op": "list_books", "reason": "The library has no wishlist information."}'
+    provider = FakeProvider(plan, "should never be used")
+    answer = answer_question("Which of my books are on my wishlist?", books, provider)
+    assert answer.plan.op == "unsupported"
+    assert answer.abstained is True
+    assert "no wishlist information" in answer.text
+    assert provider.write_calls == []
+
+
+def test_a_plan_without_a_reason_is_left_alone(books):
+    provider = FakeProvider('{"op": "list_books", "reason": null, "author": "Ilsa Verrow"}', "x")
+    assert answer_question("List Ilsa Verrow.", books, provider).plan.op == "list_books"
+
+
+def test_model_calls_are_length_capped(books):
+    provider = FakeProvider(LIST_JOSS, "Joss Harlan narrated Thornwood Accord.")
+    answer_question("What has Joss Harlan narrated?", books, provider)
+    assert len(provider.max_tokens) == 2  # one routing call, one writing call
+    assert all(cap is not None and cap > 0 for cap in provider.max_tokens)

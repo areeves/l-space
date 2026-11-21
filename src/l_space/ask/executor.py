@@ -46,7 +46,8 @@ def _book_row(book: Book) -> dict[str, Any]:
     if book.release_date:
         row["year"] = book.release_date.year
     if book.my_rating is not None:
-        row["my_rating"] = book.my_rating
+        # "5", not "5.0": cleaner for the model to quote and for people to read
+        row["my_rating"] = int(book.my_rating) if book.my_rating.is_integer() else book.my_rating
     if book.finished is False and book.minutes_left is not None:
         row["time_left"] = format_minutes(book.minutes_left)
     return {k: v for k, v in row.items() if v not in ("", None)}

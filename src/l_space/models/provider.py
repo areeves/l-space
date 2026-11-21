@@ -13,9 +13,14 @@ from l_space.core.settings import Settings
 
 class ModelProvider(Protocol):
     def generate(
-        self, prompt: str, system: str | None = None, schema: dict[str, Any] | None = None
+        self,
+        prompt: str,
+        system: str | None = None,
+        schema: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> str:
-        """Return the model's reply. With ``schema``, the reply is constrained to that JSON schema."""
+        """Return the model's reply. With ``schema``, the reply is constrained to that JSON
+        schema. ``max_tokens`` caps the length of the reply."""
         ...
 
 
@@ -26,14 +31,20 @@ class OllamaProvider:
         self.timeout = timeout
 
     def generate(
-        self, prompt: str, system: str | None = None, schema: dict[str, Any] | None = None
+        self,
+        prompt: str,
+        system: str | None = None,
+        schema: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> str:
+        options: dict[str, Any] = {"temperature": 0}  # repeatable answers and eval runs
+        if max_tokens:
+            options["num_predict"] = max_tokens
         payload: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            # Deterministic output keeps answers and eval runs repeatable.
-            "options": {"temperature": 0},
+            "options": options,
         }
         if system:
             payload["system"] = system

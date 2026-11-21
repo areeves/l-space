@@ -44,3 +44,18 @@ def test_sentence_initial_invented_name_is_flagged():
 
 def test_lowercase_words_are_not_checked():
     assert check("Corin Ashdale narrated both of these epic fantasy audiobooks.") == []
+
+
+def test_equivalent_number_formats_match():
+    # Seen in a live run: the rows said 5.0, the model wrote "5", and the check flagged it.
+    evidence = json.dumps({"rows": [{"title": "The Ember Crown", "my_rating": 5.0}]})
+    assert ungrounded_terms("You rated The Ember Crown 5 stars.", evidence, 1) == []
+    assert ungrounded_terms("You rated The Ember Crown 5.0 stars.", evidence, 1) == []
+    assert ungrounded_terms("You rated The Ember Crown 4 stars.", evidence, 1) == ["4"]
+
+
+def test_number_normalization_does_not_merge_different_numbers():
+    evidence = json.dumps({"rows": [{"length": "10h 5m"}], "total_matching": 1})
+    assert ungrounded_terms("It runs 10 hours.", evidence, 1) == []
+    assert ungrounded_terms("It runs 100 hours.", evidence, 1) == ["100"]
+    assert ungrounded_terms("It runs 1 hour and 50 minutes.", evidence, 1) == ["50"]

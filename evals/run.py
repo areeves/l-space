@@ -10,8 +10,9 @@ number of matches that plan must produce on the synthetic sample library (``expe
 Metrics:
   plan match     the model's plan equals the expected one (op, and every filter listed;
                  unlisted filters must be empty)
-  result match   running the model's plan gives the expected total (and first title, if given),
-                 which forgives different-but-equivalent plans
+  result match   running the model's plan returns the same total and rows as the expected plan
+                 (or the same total and top row for "longest"-style questions), which forgives
+                 different-but-equivalent plans but not a wrong operation
   abstention     unanswerable questions should become ``unsupported``; answerable ones must not
   grounded       share of model-written answers that passed the grounding check
   fallback       share of answers where the model's wording was replaced by deterministic text
@@ -60,16 +61,31 @@ def plan_matches(expect: dict, plan: QueryPlan) -> bool:
     return all(actual[key] == expect[key] for key in ("sort", "limit") if key in expect)
 
 
+def _row_set(rows: list[dict]) -> list[str]:
+    return sorted(json.dumps(r, sort_keys=True) for r in rows)
+
+
 def result_matches(entry: dict, plan: QueryPlan, books: list[Book]) -> bool:
+    """Does the model's plan give the user the same answer as the expected plan?
+
+    Compares what actually comes back (the total and the rows), not just how many, so a wrong
+    operation can't pass by coincidence (3 five-star books vs 3 five-star narrators). Equivalent
+    plans still pass: "Verrow" and "Ilsa Verrow" return the same books. Questions with
+    ``expect_first_title`` (superlatives like "longest") compare only the total and top row,
+    since a model may reasonably add a limit.
+    """
     if entry["expect"]["op"] == "unsupported":
         return plan.op == "unsupported"
     if plan.op == "unsupported":
         return False
-    result = execute(plan, books)
-    if result.total != entry["expect_total"]:
+    expected = execute(QueryPlan(**entry["expect"]), books)
+    actual = execute(plan, books)
+    if actual.total != expected.total:
         return False
     first = entry.get("expect_first_title")
-    return first is None or (bool(result.rows) and result.rows[0].get("title") == first)
+    if first is not None:
+        return bool(actual.rows) and actual.rows[0].get("title") == first
+    return _row_set(actual.rows) == _row_set(expected.rows)
 
 
 def validate_dataset(entries: list[dict], books: list[Book]) -> list[str]:
@@ -88,8 +104,10 @@ def validate_dataset(entries: list[dict], books: list[Book]) -> list[str]:
             continue
         if "expect_total" not in e:
             problems.append(f"{e['id']}: answerable question without expect_total")
-        elif not result_matches(e, plan, books):
+        elif execute(plan, books).total != e["expect_total"]:
             problems.append(f"{e['id']}: expected plan does not produce expect_total on the sample")
+        elif "expect_first_title" in e and not result_matches(e, plan, books):
+            problems.append(f"{e['id']}: expected plan does not put expect_first_title first")
     return problems
 
 
@@ -115,6 +133,8 @@ def evaluate(entries: list[dict], books: list[Book], provider) -> list[dict]:
                 "router_error": answer.router_error,
                 "answer": answer.text,
                 "latency_ms": round(elapsed, 1),
+                "route_ms": answer.timings_ms.get("route"),
+                "write_ms": answer.timings_ms.get("write"),  # None when no draft was written
             }
         )
     return records
@@ -130,6 +150,8 @@ def summarize(records: list[dict]) -> dict:
     drafts = [r for r in records if r["grounded"] is not None]
     latencies = sorted(r["latency_ms"] for r in records)
     p95 = latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))] if latencies else None
+    route_times = [r["route_ms"] for r in records if r.get("route_ms") is not None]
+    write_times = [r["write_ms"] for r in records if r.get("write_ms") is not None]
     return {
         "questions": len(records),
         "answerable": len(answerable),
@@ -144,6 +166,8 @@ def summarize(records: list[dict]) -> dict:
         "router_errors": sum(bool(r["router_error"]) for r in records),
         "latency_ms_p50": round(statistics.median(latencies), 1) if latencies else None,
         "latency_ms_p95": p95,
+        "route_ms_p50": round(statistics.median(route_times), 1) if route_times else None,
+        "write_ms_p50": round(statistics.median(write_times), 1) if write_times else None,
     }
 
 

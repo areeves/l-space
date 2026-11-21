@@ -83,7 +83,8 @@ How a question is answered:
    (`list_books`, `count_books`, `narrator_counts`, `author_counts`, `series_gaps`,
    `in_progress`, or `unsupported`) plus optional filters (author, narrator, series, category,
    length, your rating) and a sort. Ollama constrains decoding to that JSON schema, and an
-   invalid plan is retried once before the question is declined.
+   invalid plan is retried once before the question is declined. A plan that picks a real
+   operation but also explains why it can't answer is treated as `unsupported`.
 2. **Execute.** Plain code runs the plan over the library, so counts and filters are exact.
 3. **Phrase.** The model writes a short answer from the returned rows only. If nothing
    matched, or the question was unsupported, no model-written text is used at all.
@@ -96,19 +97,25 @@ and "what happens in this book" questions are deliberately `unsupported` for now
 
 ## Evaluation
 
-`evals/` holds 18 fixed questions (13 answerable, 5 not) run against the synthetic sample
-library, so anyone can reproduce them.
+`evals/` holds two fixed question sets, run against the synthetic sample library so anyone can
+reproduce them:
+
+- `questions.jsonl`: 18 questions (13 answerable, 5 not) used while tuning the prompt.
+- `heldout.jsonl`: 14 differently-worded questions (10 answerable, 4 not) that are **never
+  used for tuning**. Quote this score; the tuning set is optimistic by construction.
 
 ```bash
-make eval-validate   # no model needed: checks the dataset itself
-make eval            # runs every question through the configured Ollama model
+make eval-validate   # no model needed: checks both datasets
+make eval            # tuning set through the configured Ollama model
+python evals/run.py --questions evals/heldout.jsonl          # held-out set
 python evals/run.py --model qwen2.5:7b --out evals/results.json   # compare models
 ```
 
-It reports plan match, result match (does the model's plan produce the right books, even if
-phrased differently), abstention on unanswerable questions, false abstentions, how often the
-model's wording passed the grounding check, how often fallback text was used, and p50/p95
-latency. Results for a given model and machine are worth recording here once you have run it.
+It reports plan match, result match (does the model's plan return the same books as the
+expected one, even if phrased differently), abstention on unanswerable questions, false
+abstentions, how often the model's wording passed the grounding check, how often fallback text
+was used, and p50/p95 latency with a route/write split. See `evals/README.md` for the results
+log.
 
 ## Layout
 

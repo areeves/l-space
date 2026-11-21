@@ -47,3 +47,11 @@ def test_schema_lists_every_operation():
     ops = plan_schema()["properties"]["op"]["enum"]
     assert "unsupported" in ops
     assert set(ops) >= {"list_books", "count_books", "series_gaps", "in_progress"}
+
+
+def test_router_prompt_covers_the_failure_modes_seen_in_live_runs():
+    from l_space.ask.router import SYSTEM_PROMPT
+
+    # min/max direction, narrator vs author, in_progress, and what the library does not record
+    for needle in ('max_minutes: "shorter than"', "WROTE", "READ", "in_progress", "NO prices, wishlists"):
+        assert needle in SYSTEM_PROMPT

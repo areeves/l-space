@@ -12,6 +12,7 @@ data passes; an invented title, author, or figure does not.
 """
 
 import re
+from decimal import Decimal
 
 _WORD = re.compile(r"[A-Za-z][A-Za-z'’]*")
 _NUM = re.compile(r"\d+(?:\.\d+)?")
@@ -44,10 +45,15 @@ def _at_sentence_start(text: str, pos: int) -> bool:
     return not before or before[-1] in _SENTENCE_END
 
 
+def _num_key(number: str) -> str:
+    """Canonical form so '5', '5.0' and '5.00' count as the same number."""
+    return format(Decimal(number).normalize(), "f")
+
+
 def ungrounded_terms(answer: str, evidence: str, n_rows: int) -> list[str]:
     """Words and numbers in ``answer`` that the evidence does not support (empty = grounded)."""
     evidence_words = {_norm(w) for w in _WORD.findall(evidence)}
-    evidence_numbers = set(_NUM.findall(evidence))
+    evidence_numbers = {_num_key(n) for n in _NUM.findall(evidence)}
 
     flagged: list[str] = []
     for match in _WORD.finditer(answer):
@@ -61,7 +67,8 @@ def ungrounded_terms(answer: str, evidence: str, n_rows: int) -> list[str]:
             flagged.append(word)
 
     for number in _NUM.findall(answer):
-        allowed = number in evidence_numbers or (number.isdigit() and int(number) <= n_rows + 1)
+        key = _num_key(number)
+        allowed = key in evidence_numbers or (key.isdigit() and int(key) <= n_rows + 1)
         if not allowed and number not in flagged:
             flagged.append(number)
     return flagged

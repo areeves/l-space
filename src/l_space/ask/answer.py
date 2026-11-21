@@ -20,6 +20,8 @@ Be concise: one to three sentences, or a short list. Do not mention any title, n
 that is not in the data. If "shown" is smaller than "total_matching", say the list is partial.
 """
 
+_WRITER_MAX_TOKENS = 300  # answers are one to three sentences or a short list
+
 CAPABILITIES = (
     "I can list or count books (by author, narrator, series, category, length or your "
     "rating), rank narrators or authors, find gaps in numbered series, and show books "
@@ -82,7 +84,9 @@ def answer_question(question: str, books: list[Book], provider: ModelProvider) -
 
     started = time.perf_counter()
     try:
-        draft = provider.generate(_writer_prompt(question, result), system=WRITER_SYSTEM).strip()
+        draft = provider.generate(
+            _writer_prompt(question, result), system=WRITER_SYSTEM, max_tokens=_WRITER_MAX_TOKENS
+        ).strip()
     except httpx.HTTPError:
         draft = ""
     timings["write"] = (time.perf_counter() - started) * 1000

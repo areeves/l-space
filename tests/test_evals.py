@@ -18,7 +18,7 @@ class OracleProvider(FakeProvider):
         super().__init__("{}")
         self.by_question = {e["question"]: json.dumps(e["expect"]) for e in entries}
 
-    def generate(self, prompt, system=None, schema=None):
+    def generate(self, prompt, system=None, schema=None, max_tokens=None):
         if schema is not None:
             question = prompt.removeprefix("Q: ").split("\nA:")[0]
             return self.by_question[question]
@@ -70,3 +70,45 @@ def test_a_bad_router_is_scored_as_wrong(books):
     summary = eval_run.summarize(records)
     assert summary["result_match"] == 0.0
     assert summary["false_abstain"] == 1.0
+
+
+def test_scoring_catches_the_wrong_plans_from_the_first_live_run(books):
+    """Plans llama3.2 actually produced on the first live run (see PR #2 discussion)."""
+    entries = {e["id"]: e for e in eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)}
+    live_plans = {
+        "list-narrator": {"op": "narrator_counts", "author": "Joss Harlan"},
+        "in-progress": {"op": "list_books", "min_minutes": 0, "max_minutes": 1200, "sort": "newest"},
+        "short-books": {"op": "list_books", "min_minutes": 60},
+        "wishlist": None,  # covered by the router guard, see test_ask_pipeline
+        # 3 five-star books and 3 five-star narrators: only the rows reveal the wrong operation
+        "narrators-five-star": {"op": "list_books", "min_my_rating": 5.0},
+    }
+    for id_, plan in live_plans.items():
+        if plan is None:
+            continue
+        entry = entries["unanswerable-wishlist" if id_ == "wishlist" else id_]
+        assert not eval_run.result_matches(entry, QueryPlan(**plan), books), id_
+
+
+def test_correct_plans_from_the_first_live_run_still_pass(books):
+    entries = {e["id"]: e for e in eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)}
+    good = QueryPlan(op="narrator_counts", min_my_rating=5.0)
+    assert eval_run.result_matches(entries["narrators-five-star"], good, books)
+    # A limit on a superlative is fine: only the total and the top row are compared
+    longest = QueryPlan(op="list_books", sort="longest", limit=1)
+    assert eval_run.result_matches(entries["longest"], longest, books)
+
+
+def test_heldout_set_is_valid_and_never_used_for_tuning(books):
+    """The held-out questions measure generalization, so they must not leak into the prompt
+    examples or the tuning set."""
+    from l_space.ask.router import SYSTEM_PROMPT
+
+    heldout = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS.with_name("heldout.jsonl"))
+    tuning = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)
+    assert eval_run.validate_dataset(heldout, books) == []
+    questions = {e["question"] for e in heldout}
+    assert not questions & {e["question"] for e in tuning}
+    assert not {e["id"] for e in heldout} & {e["id"] for e in tuning}
+    assert not any(q in SYSTEM_PROMPT for q in questions)
+    assert {e["expect"]["op"] == "unsupported" for e in heldout} == {True, False}
