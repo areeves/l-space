@@ -1,18 +1,30 @@
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
+from l_space.ask.answer import Answer, answer_question
 from l_space.core.settings import Settings, get_settings
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import queries
 from l_space.library.models import Book
 from l_space.library.store import LibraryStore
+from l_space.models.provider import ModelProvider, from_settings
 
 router = APIRouter()
 
 
 def get_store(settings: Settings = Depends(get_settings)) -> LibraryStore:
     return LibraryStore(settings.db_path)
+
+
+def get_provider(settings: Settings = Depends(get_settings)) -> ModelProvider:
+    return from_settings(settings)
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
 
 
 @router.get("/health")
@@ -41,3 +53,20 @@ def narrators(min_my_rating: float | None = None, store: LibraryStore = Depends(
 @router.get("/library/series-gaps")
 def series_gaps(store: LibraryStore = Depends(get_store)):
     return queries.series_gaps(store.all_books())
+
+
+@router.post("/ask", response_model=Answer)
+def ask(
+    body: AskRequest,
+    store: LibraryStore = Depends(get_store),
+    provider: ModelProvider = Depends(get_provider),
+) -> Answer:
+    books = store.all_books()
+    if not books:
+        raise HTTPException(status_code=409, detail="The library is empty. Import a CSV first.")
+    try:
+        return answer_question(body.question, books, provider)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=503, detail=f"Language model backend unavailable ({type(exc).__name__})."
+        ) from exc

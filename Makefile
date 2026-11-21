@@ -1,4 +1,4 @@
-.PHONY: install test lint up down pull-model demo
+.PHONY: install test lint up down pull-model demo eval eval-validate
 
 install:
 	pip install -e ".[dev]"
@@ -23,3 +23,11 @@ demo:
 	l-space import data/sample/library.csv
 	l-space series-gaps
 	l-space narrators
+
+# Check the eval dataset against the sample library (no model needed)
+eval-validate:
+	python evals/run.py --validate
+
+# Run every eval question through the configured Ollama model
+eval:
+	python evals/run.py

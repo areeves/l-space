@@ -1,0 +1,46 @@
+import json
+
+from l_space.ask.grounding import ungrounded_terms
+
+ROWS = [
+    {"title": "The Ember Crown", "authors": "Ilsa Verrow", "narrators": "Corin Ashdale", "length": "14h 20m"},
+    {"title": "The Cinder Throne", "authors": "Ilsa Verrow", "narrators": "Corin Ashdale", "length": "15h 5m"},
+]
+QUESTION = "What has Corin Ashdale narrated?"
+EVIDENCE = f"{QUESTION}\n" + json.dumps({"total_matching": 2, "shown": 2, "rows": ROWS})
+
+
+def check(text, n_rows=2):
+    return ungrounded_terms(text, EVIDENCE, n_rows)
+
+
+def test_faithful_answer_passes():
+    assert check("Corin Ashdale narrated The Ember Crown (14h 20m) and The Cinder Throne.") == []
+
+
+def test_possessive_and_sentence_starters_are_fine():
+    assert check("You have 2 books. Ilsa Verrow's The Ember Crown runs about 14 hours.") == []
+
+
+def test_invented_title_is_flagged():
+    assert "Dragonfall" in check("Corin Ashdale narrated Dragonfall and The Ember Crown.")
+
+
+def test_invented_person_is_flagged():
+    assert "Petra" in check("The Ember Crown was narrated by Petra Lindqvist.")
+
+
+def test_invented_number_is_flagged():
+    assert "47" in check("The Ember Crown is 47 hours long.")
+
+
+def test_counts_up_to_row_count_allowed_for_enumeration():
+    assert check("1. The Ember Crown\n2. The Cinder Throne") == []
+
+
+def test_sentence_initial_invented_name_is_flagged():
+    assert "Dragonfall" in check("Dragonfall is also on the list.")
+
+
+def test_lowercase_words_are_not_checked():
+    assert check("Corin Ashdale narrated both of these epic fantasy audiobooks.") == []
