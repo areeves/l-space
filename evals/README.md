@@ -29,6 +29,7 @@ change so the effect of each fix is visible.
 | Date | Change | Set | plan match | result match | abstain recall | grounded | p50 / p95 latency |
 |---|---|---|---|---|---|---|---|
 | 2026-11-20 | Baseline (PR #2) | questions | 0.692 | 0.769 \* | 0.80 | 0.917 | 17.9 s / 58.3 s |
+| 2026-11-21 | Prompt rules and examples, reason guard, row-level scoring (`6cd90a6`) | questions | 0.923 | 0.923 | 1.00 | 1.00 | 14.5 s / 54.5 s |
 
 \* Scored by totals only, which let one wrong plan pass by coincidence (3 five-star books vs
 3 five-star narrators). The current scoring compares the returned rows, which by my reading
@@ -45,4 +46,11 @@ What the baseline failures looked like, and what changed in response:
   now treated as `unsupported`, and the prompt lists what the library does *not* record.
 - Latency: routing and writing are now timed separately, and both calls have a token cap.
 
-The next row should come from rerunning both sets after these changes.
+Second row, in detail: 12 of 13 answerable questions routed correctly, no false abstentions,
+no router errors, all 12 model-written answers passed the grounding check (no fallbacks). The
+one miss is "Which narrators have I rated five stars?", where the model chose `list_books`
+with a rating filter instead of `narrator_counts`. Latency split (p50): routing 3.6 s, writing
+13.4 s, so the writing call is the expensive one.
+
+This row is on the tuning set, which the prompt was improved against, so treat it as an upper
+bound. The held-out row is the one to quote; it has not been run yet.
