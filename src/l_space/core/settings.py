@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/l-space.db")
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
+    # Optional larger model for routing only. Routing is a short, accuracy-critical call, while
+    # writing is the slow one, so a bigger router costs far less than a bigger writer.
+    ollama_router_model: str | None = None
     # Generous by default: a first request on CPU has to load the model.
     ollama_timeout: float = 300.0
     log_level: str = "INFO"

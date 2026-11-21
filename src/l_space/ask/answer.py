@@ -55,11 +55,17 @@ def _writer_prompt(question: str, result: Result) -> str:
     return f"Question: {question}\n\nData:\n{json.dumps(data, ensure_ascii=False)}\n\nAnswer:"
 
 
-def answer_question(question: str, books: list[Book], provider: ModelProvider) -> Answer:
+def answer_question(
+    question: str,
+    books: list[Book],
+    provider: ModelProvider,
+    router: ModelProvider | None = None,
+) -> Answer:
+    """``provider`` writes the answer; ``router`` (default: the same model) writes the plan."""
     timings: dict[str, float] = {}
 
     started = time.perf_counter()
-    plan, router_error = route(question, provider)
+    plan, router_error = route(question, router or provider)
     timings["route"] = (time.perf_counter() - started) * 1000
 
     def done(text: str, result: Result | None = None, **extra: Any) -> Answer:

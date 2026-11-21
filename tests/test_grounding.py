@@ -54,6 +54,13 @@ def test_equivalent_number_formats_match():
     assert ungrounded_terms("You rated The Ember Crown 4 stars.", evidence, 1) == ["4"]
 
 
+def test_digits_match_number_words_from_the_question():
+    # Seen in a live run: the question said "five stars" and the model answered "5 stars".
+    evidence = "Which narrators have I rated five stars?\n" + json.dumps({"rows": [{"books": 1}]})
+    assert ungrounded_terms("These are the narrators you rated 5 stars.", evidence, 1) == []
+    assert ungrounded_terms("These are the narrators you rated 4 stars.", evidence, 1) == ["4"]
+
+
 def test_number_normalization_does_not_merge_different_numbers():
     evidence = json.dumps({"rows": [{"length": "10h 5m"}], "total_matching": 1})
     assert ungrounded_terms("It runs 10 hours.", evidence, 1) == []

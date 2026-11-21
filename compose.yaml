@@ -7,6 +7,7 @@ services:
       L_SPACE_DB_PATH: /app/data/l-space.db
       L_SPACE_OLLAMA_URL: http://ollama:11434
       L_SPACE_OLLAMA_MODEL: ${L_SPACE_OLLAMA_MODEL:-llama3.2}
+      L_SPACE_OLLAMA_ROUTER_MODEL: ${L_SPACE_OLLAMA_ROUTER_MODEL:-}
     volumes:
       - ./data:/app/data
     depends_on:
@@ -15,6 +16,9 @@ services:
   # Local model server. Pull a model once with: make pull-model
   ollama:
     image: ollama/ollama:latest
+    environment:
+      # Keep both the router and writer models in memory so questions don't reload them.
+      OLLAMA_MAX_LOADED_MODELS: 2
     ports:
       - "11434:11434"
     volumes:

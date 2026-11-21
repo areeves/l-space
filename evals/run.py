@@ -111,11 +111,11 @@ def validate_dataset(entries: list[dict], books: list[Book]) -> list[str]:
     return problems
 
 
-def evaluate(entries: list[dict], books: list[Book], provider) -> list[dict]:
+def evaluate(entries: list[dict], books: list[Book], provider, router=None) -> list[dict]:
     records = []
     for e in entries:
         started = time.perf_counter()
-        answer = answer_question(e["question"], books, provider)
+        answer = answer_question(e["question"], books, provider, router)
         elapsed = (time.perf_counter() - started) * 1000
         unanswerable = e["expect"]["op"] == "unsupported"
         records.append(
@@ -171,8 +171,8 @@ def summarize(records: list[dict]) -> dict:
     }
 
 
-def _print_report(summary: dict, records: list[dict], model: str) -> None:
-    print(f"\nModel: {model}")
+def _print_report(summary: dict, records: list[dict], model: str, router_model: str) -> None:
+    print(f"\nModel: {model}" + (f"  (router: {router_model})" if router_model != model else ""))
     for key, value in summary.items():
         print(f"  {key:<16} {value}")
     failures = [r for r in records if not r["result_match"] or r["used_fallback"] or r["router_error"]]
@@ -195,7 +195,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--questions", type=Path, default=DEFAULT_QUESTIONS)
     parser.add_argument("--library", type=Path, default=DEFAULT_LIBRARY)
-    parser.add_argument("--model", help="Ollama model name (default: from settings)")
+    parser.add_argument("--model", help="Ollama model that writes answers (default: from settings)")
+    parser.add_argument(
+        "--router-model", help="Ollama model that routes questions (default: same as --model)"
+    )
     parser.add_argument("--url", help="Ollama base URL (default: from settings)")
     parser.add_argument("--out", type=Path, help="Write full per-question results as JSON")
     parser.add_argument("--validate", action="store_true", help="Check the dataset only; no model")
@@ -217,13 +220,18 @@ def main() -> int:
 
     settings = get_settings()
     model = args.model or settings.ollama_model
-    provider = OllamaProvider(args.url or settings.ollama_url, model, settings.ollama_timeout)
-    records = evaluate(entries, books, provider)
+    url = args.url or settings.ollama_url
+    router_model = args.router_model or settings.ollama_router_model or model
+    provider = OllamaProvider(url, model, settings.ollama_timeout)
+    router = (
+        provider if router_model == model else OllamaProvider(url, router_model, settings.ollama_timeout)
+    )
+    records = evaluate(entries, books, provider, router)
     summary = summarize(records)
-    _print_report(summary, records, model)
+    _print_report(summary, records, model, router_model)
     if args.out:
         args.out.write_text(
-            json.dumps({"model": model, "summary": summary, "records": records}, indent=2),
+            json.dumps({"model": model, "router_model": router_model, "summary": summary, "records": records}, indent=2),
             encoding="utf-8",
         )
     if args.fail_under is not None and (summary["result_match"] or 0) < args.fail_under:

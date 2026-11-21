@@ -92,6 +92,10 @@ How a question is answered:
    isn't in the rows (or the question) and falls back to deterministic text. The check is a
    conservative heuristic, not a proof.
 
+Routing is a short call where a mistake ruins the answer, while writing is the slow one, so
+they can use different models: set `L_SPACE_OLLAMA_ROUTER_MODEL` (for example `qwen2.5:7b`)
+to route with a larger model and keep a small one writing. Both stay loaded in Ollama.
+
 `--show-plan` prints the plan, whether the draft passed the check, and timings. Recommendation
 and "what happens in this book" questions are deliberately `unsupported` for now.
 
@@ -108,7 +112,8 @@ reproduce them:
 make eval-validate   # no model needed: checks both datasets
 make eval            # tuning set through the configured Ollama model
 python evals/run.py --questions evals/heldout.jsonl          # held-out set
-python evals/run.py --model qwen2.5:7b --out evals/results.json   # compare models
+python evals/run.py --model qwen2.5:7b --out evals/results.json   # one model for both stages
+python evals/run.py --router-model qwen2.5:7b                     # bigger router, small writer
 ```
 
 It reports plan match, result match (does the model's plan return the same books as the

@@ -102,3 +102,14 @@ def test_model_calls_are_length_capped(books):
     answer_question("What has Joss Harlan narrated?", books, provider)
     assert len(provider.max_tokens) == 2  # one routing call, one writing call
     assert all(cap is not None and cap > 0 for cap in provider.max_tokens)
+
+
+def test_router_model_routes_and_writer_model_writes(books):
+    router = FakeProvider(LIST_JOSS, "the router must never write")
+    writer = FakeProvider("{}", "Joss Harlan narrated Thornwood Accord.")
+    answer = answer_question("What has Joss Harlan narrated?", books, writer, router)
+    assert len(router.plan_calls) == 1
+    assert router.write_calls == []
+    assert writer.plan_calls == []
+    assert len(writer.write_calls) == 1
+    assert answer.grounded is True

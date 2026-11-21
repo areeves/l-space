@@ -11,7 +11,7 @@ from l_space.core.settings import get_settings
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import queries
 from l_space.library.store import LibraryStore
-from l_space.models.provider import from_settings
+from l_space.models.provider import from_settings, router_from_settings
 
 
 def main() -> None:
@@ -35,7 +35,10 @@ def main() -> None:
         if not books:
             sys.exit("The library is empty. Run: l-space import <csv>")
         try:
-            answer = answer_question(args.question, books, from_settings(settings))
+            writer = from_settings(settings)
+            answer = answer_question(
+                args.question, books, writer, router_from_settings(settings, writer)
+            )
         except httpx.HTTPError as exc:
             sys.exit(f"Could not reach the language model at {settings.ollama_url}: {exc}")
         print(answer.text)

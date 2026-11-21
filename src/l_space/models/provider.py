@@ -57,3 +57,12 @@ class OllamaProvider:
 
 def from_settings(settings: Settings) -> OllamaProvider:
     return OllamaProvider(settings.ollama_url, settings.ollama_model, settings.ollama_timeout)
+
+
+def router_from_settings(settings: Settings, default: ModelProvider) -> ModelProvider:
+    """The provider used to turn questions into plans: ``default`` unless a router model is set."""
+    if settings.ollama_router_model and settings.ollama_router_model != settings.ollama_model:
+        return OllamaProvider(
+            settings.ollama_url, settings.ollama_router_model, settings.ollama_timeout
+        )
+    return default

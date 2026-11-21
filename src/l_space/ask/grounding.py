@@ -17,6 +17,11 @@ from decimal import Decimal
 _WORD = re.compile(r"[A-Za-z][A-Za-z'’]*")
 _NUM = re.compile(r"\d+(?:\.\d+)?")
 
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}  # fmt: skip
+
 _SENTENCE_END = ".!?:\n"
 _DECORATION = " \t*_#>-•("
 
@@ -54,6 +59,8 @@ def ungrounded_terms(answer: str, evidence: str, n_rows: int) -> list[str]:
     """Words and numbers in ``answer`` that the evidence does not support (empty = grounded)."""
     evidence_words = {_norm(w) for w in _WORD.findall(evidence)}
     evidence_numbers = {_num_key(n) for n in _NUM.findall(evidence)}
+    # "five stars" in the question supports "5 stars" in the answer
+    evidence_numbers |= {str(value) for word, value in _NUMBER_WORDS.items() if word in evidence_words}
 
     flagged: list[str] = []
     for match in _WORD.finditer(answer):

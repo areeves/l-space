@@ -112,3 +112,12 @@ def test_heldout_set_is_valid_and_never_used_for_tuning(books):
     assert not {e["id"] for e in heldout} & {e["id"] for e in tuning}
     assert not any(q in SYSTEM_PROMPT for q in questions)
     assert {e["expect"]["op"] == "unsupported" for e in heldout} == {True, False}
+
+
+def test_evaluate_uses_the_router_for_plans_and_the_writer_for_text(books):
+    entries = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)
+    router = OracleProvider(entries)
+    writer = FakeProvider("{}", "Done.")
+    records = eval_run.evaluate(entries, books, writer, router)
+    assert eval_run.summarize(records)["plan_match"] == 1.0
+    assert writer.plan_calls == []  # the writer model was never asked to route

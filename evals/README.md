@@ -31,6 +31,8 @@ change so the effect of each fix is visible.
 | 2026-11-20 | Baseline (PR #2) | questions | 0.692 | 0.769 \* | 0.80 | 0.917 | 17.9 s / 58.3 s |
 | 2026-11-21 | Prompt rules and examples, reason guard, row-level scoring (`6cd90a6`) | questions | 0.923 | 0.923 | 1.00 | 1.00 | 14.5 s / 54.5 s |
 | 2026-11-21 | Same (`6cd90a6`) | held-out (14) | 0.800 | 0.800 | 1.00 | 1.00 | 18.1 s / 53.3 s |
+| 2026-11-21 | Lower/upper-bound and which-narrators rules (`257ecf2`) | questions (20) | 0.800 | 0.800 | 1.00 | 0.929 \*\* | 14.9 s / 61.4 s |
+| 2026-11-21 | Same (`257ecf2`) | held-out (16) | 0.833 | 0.833 | 1.00 | 1.00 | 14.6 s / 38.2 s |
 
 \* Scored by totals only, which let one wrong plan pass by coincidence (3 five-star books vs
 3 five-star narrators). The current scoring compares the returned rows, which by my reading
@@ -79,3 +81,36 @@ patterns with different phrasing ("17 hours or more", "no more than 14 hours", "
 behind my four-star-and-up books", plus a count with a length filter). Scores from before and
 after this change are therefore not directly comparable on the held-out set. The next rows should
 rerun both sets.
+
+### The rules did not work on a 3B model
+
+The two sets changed between the rows above (questions moved in, new ones added), so compare
+by question, not by score. The twelve tuning questions that passed before still pass, so
+nothing regressed, but **neither rule fixed its target**:
+
+- "beyond 16 hours" is still `max_minutes: 960`, and the new held-out "17 hours or more"
+  fails the same way. Common phrasings ("longer than", "no more than") pass; unusual ones do not.
+- "Which narrators ..." questions still route wrongly, three different ways: `list_books`,
+  `author_counts`, and `list_books` with an invented `sort: longest`, which ignores the
+  "never invent filters" rule.
+
+Prompt patching has reached diminishing returns on this model, and each round also spends
+held-out questions. \*\* The grounding dip (0.929) was a bug in the check, not the model: the
+question said "five stars" and the answer said "5 stars". Digits now match number words in the
+question.
+
+**Next experiment: is it model capacity or the interface?** Routing is only about a quarter of
+the time per question (p50 4 s of ~15 s), so a larger model can do it without making the
+slow writing step slower. Pull a bigger model and route with it, keeping `llama3.2` as the writer:
+
+```bash
+docker compose exec ollama ollama pull qwen2.5:7b
+docker compose exec app python evals/run.py --router-model qwen2.5:7b
+docker compose exec app python evals/run.py --router-model qwen2.5:7b --questions evals/heldout.jsonl
+```
+
+If the larger router fixes these patterns, the answer is "right-size the model per stage"
+and no more prompt tuning is needed. If it does not, the interface is the problem, and the
+candidates are naming fields after the user's words (`longer_than_minutes`, `rank_narrators`)
+and a short reasoning field before the operation. The held-out questions that failed in the
+latest run are now burned for that purpose, so fresh ones would be needed.
