@@ -5,10 +5,11 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir .[dev]
 
 COPY data/sample ./data/sample
 COPY evals ./evals
+COPY tests ./tests
 
 EXPOSE 8000
 CMD ["uvicorn", "l_space.main:app", "--host", "0.0.0.0", "--port", "8000"]
