@@ -27,7 +27,7 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = get_settings()
-    store = LibraryStore(settings.db_path)
+    store = LibraryStore.from_settings(settings)
     if args.command == "import":
         print(f"Imported {store.replace_all(load_ale_csv(args.csv))} books")
     elif args.command == "ask":

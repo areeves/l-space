@@ -1,11 +1,26 @@
 """SQLite persistence. Exact questions (counts, filters, series status) are answered here,
 with plain code, never by a language model."""
 
+from abc import ABC, abstractmethod
 import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
 
+from l_space.core.settings import Settings
 from l_space.library.models import Book
+
+class LibraryStore(ABC):
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "LibraryStore":
+        return SqliteLibraryStore(settings.db_path)
+
+    @abstractmethod
+    def replace_all(self, books: Iterable[Book]) -> int:
+        ...
+
+    @abstractmethod
+    def all_books(self) -> list[Book]:
+        ...
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS books (
@@ -17,7 +32,7 @@ CREATE TABLE IF NOT EXISTS books (
 """
 
 
-class LibraryStore:
+class SqliteLibraryStore(LibraryStore):
     def __init__(self, path: Path | str):
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)

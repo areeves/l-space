@@ -5,12 +5,12 @@ from conftest import SAMPLE
 from fakes import FakeProvider
 from l_space.api.routes import get_provider, get_store
 from l_space.ingestion.loaders import load_ale_csv
-from l_space.library.store import LibraryStore
+from l_space.library.store import SqliteLibraryStore
 from l_space.main import create_app
 
 
 def client_for(provider, with_books=True) -> TestClient:
-    store = LibraryStore(":memory:")
+    store = SqliteLibraryStore(":memory:")
     if with_books:
         store.replace_all(load_ale_csv(SAMPLE))
     app = create_app()

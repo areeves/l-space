@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 def get_store(settings: Settings = Depends(get_settings)) -> LibraryStore:
-    return LibraryStore(settings.db_path)
+    return LibraryStore.from_settings(settings)
 
 
 def get_provider(settings: Settings = Depends(get_settings)) -> ModelProvider:
