@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import httpx
+import httpx2
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 def get_store(settings: Settings = Depends(get_settings)) -> LibraryStore:
-    return LibraryStore(settings.db_path)
+    return LibraryStore.from_settings(settings)
 
 
 def get_provider(settings: Settings = Depends(get_settings)) -> ModelProvider:
@@ -73,7 +73,7 @@ def ask(
         raise HTTPException(status_code=409, detail="The library is empty. Import a CSV first.")
     try:
         return answer_question(body.question, books, provider, router_provider)
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         raise HTTPException(
             status_code=503, detail=f"Language model backend unavailable ({type(exc).__name__})."
         ) from exc

@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-import httpx
+import httpx2
 
 from l_space.ask.answer import answer_question
 from l_space.core.settings import get_settings
@@ -27,7 +27,7 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = get_settings()
-    store = LibraryStore(settings.db_path)
+    store = LibraryStore.from_settings(settings)
     if args.command == "import":
         print(f"Imported {store.replace_all(load_ale_csv(args.csv))} books")
     elif args.command == "ask":
@@ -39,7 +39,7 @@ def main() -> None:
             answer = answer_question(
                 args.question, books, writer, router_from_settings(settings, writer)
             )
-        except httpx.HTTPError as exc:
+        except httpx2.HTTPError as exc:
             sys.exit(f"Could not reach the language model at {settings.ollama_url}: {exc}")
         print(answer.text)
         if args.show_plan:

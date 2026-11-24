@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 
 from fakes import FakeProvider
 from l_space.ask.answer import answer_question
@@ -65,7 +65,7 @@ def test_writer_outage_falls_back_but_still_answers(books):
     class WriterDown(FakeProvider):
         def generate(self, prompt, system=None, schema=None, max_tokens=None):
             if schema is None:
-                raise httpx.ConnectError("down")
+                raise httpx2.ConnectError("down")
             return super().generate(prompt, system, schema, max_tokens)
 
     answer = answer_question("How many by Maren Oakley?", books, WriterDown('{"op": "count_books", "author": "Maren Oakley"}'))

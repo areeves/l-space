@@ -28,7 +28,7 @@ import sys
 import time
 from pathlib import Path
 
-import httpx
+import httpx2
 
 from l_space.ask.answer import answer_question
 from l_space.ask.executor import execute
@@ -247,7 +247,7 @@ def main() -> int:
         print("Loading models (not timed)...", flush=True)
         try:
             warm_up(provider, *([router] if router is not provider else []))
-        except httpx.HTTPError as exc:
+        except httpx2.HTTPError as exc:
             print(
                 f"Could not use the model ({exc}). Is it pulled? Try: "
                 f"docker compose exec ollama ollama pull {model} (or {router_model})",
