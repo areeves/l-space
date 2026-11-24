@@ -1,26 +1,13 @@
 """SQLite persistence. Exact questions (counts, filters, series status) are answered here,
 with plain code, never by a language model."""
 
-from abc import ABC, abstractmethod
 import sqlite3
+from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from pathlib import Path
 
 from l_space.core.settings import Settings
 from l_space.library.models import Book
-
-class LibraryStore(ABC):
-    @classmethod
-    def from_settings(cls, settings: Settings) -> "LibraryStore":
-        return SqliteLibraryStore(settings.db_path)
-
-    @abstractmethod
-    def replace_all(self, books: Iterable[Book]) -> int:
-        ...
-
-    @abstractmethod
-    def all_books(self) -> list[Book]:
-        ...
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS books (
@@ -30,6 +17,20 @@ CREATE TABLE IF NOT EXISTS books (
     data TEXT NOT NULL  -- the full Book as JSON, including the untouched source row
 );
 """
+
+
+class LibraryStore(ABC):
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "LibraryStore":
+        return SqliteLibraryStore(settings.db_path)
+
+    @abstractmethod
+    def replace_all(self, books: Iterable[Book]) -> int:
+        """Replace the whole library with `books` (re-import is idempotent) and return the count."""
+
+    @abstractmethod
+    def all_books(self) -> list[Book]:
+        """Return every book, ordered by title."""
 
 
 class SqliteLibraryStore(LibraryStore):
