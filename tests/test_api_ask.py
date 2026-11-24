@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 from fastapi.testclient import TestClient
 
 from conftest import SAMPLE
@@ -41,7 +41,7 @@ def test_ask_on_empty_library_is_a_conflict():
 def test_ask_reports_unreachable_model_as_503():
     class Down:
         def generate(self, prompt, system=None, schema=None, max_tokens=None):
-            raise httpx.ConnectError("refused")
+            raise httpx2.ConnectError("refused")
 
     resp = client_for(Down()).post("/ask", json={"question": "anything"})
     assert resp.status_code == 503

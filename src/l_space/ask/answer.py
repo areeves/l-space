@@ -4,7 +4,7 @@ import json
 import time
 from typing import Any
 
-import httpx
+import httpx2
 from pydantic import BaseModel, Field
 
 from l_space.ask.executor import Result, execute, render
@@ -93,7 +93,7 @@ def answer_question(
         draft = provider.generate(
             _writer_prompt(question, result), system=WRITER_SYSTEM, max_tokens=_WRITER_MAX_TOKENS
         ).strip()
-    except httpx.HTTPError:
+    except httpx2.HTTPError:
         draft = ""
     timings["write"] = (time.perf_counter() - started) * 1000
 

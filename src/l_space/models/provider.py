@@ -6,7 +6,7 @@ swapped (or faked in tests) without touching the rest of the application.
 
 from typing import Any, Protocol
 
-import httpx
+import httpx2
 
 from l_space.core.settings import Settings
 
@@ -50,7 +50,7 @@ class OllamaProvider:
             payload["system"] = system
         if schema:
             payload["format"] = schema
-        resp = httpx.post(f"{self.base_url}/api/generate", json=payload, timeout=self.timeout)
+        resp = httpx2.post(f"{self.base_url}/api/generate", json=payload, timeout=self.timeout)
         resp.raise_for_status()
         return resp.json()["response"]
 

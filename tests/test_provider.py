@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 
 from l_space.core.settings import Settings
 from l_space.models.provider import OllamaProvider, from_settings, router_from_settings
@@ -44,7 +44,7 @@ def test_request_payload(monkeypatch):
         sent.update(url=url, json=json, timeout=timeout)
         return Response()
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx2, "post", fake_post)
     provider = OllamaProvider("http://ollama:11434/", "llama3.2", timeout=12)
 
     reply = provider.generate("hi", system="be brief", schema={"type": "object"}, max_tokens=50)
@@ -72,7 +72,7 @@ def test_optional_fields_are_omitted_when_unused(monkeypatch):
         def json(self):
             return {"response": ""}
 
-    monkeypatch.setattr(httpx, "post", lambda url, json, timeout: sent.update(json=json) or Response())
+    monkeypatch.setattr(httpx2, "post", lambda url, json, timeout: sent.update(json=json) or Response())
     OllamaProvider("http://x", "m").generate("hi")
     assert sent["json"] == {
         "model": "m", "prompt": "hi", "stream": False, "options": {"temperature": 0},
