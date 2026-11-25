@@ -28,6 +28,14 @@ FILTERS = [
     {"category": "fantasy"},
     {"category": "épique"},
     {"category": "zzz-no-such"},
+    {"category": " "},  # whitespace-only: matches every audiobook, even with no category
+    {"category": "epic"},  # child category and tags
+    {"category": "grimdark"},
+    {"series": " "},
+    {"narrator": " "},
+    {"author": "dup"},
+    {"max_minutes": 1},
+    {"min_my_rating": 3.5},
     {"min_minutes": 0},
     {"min_minutes": 900},
     {"max_minutes": 60},

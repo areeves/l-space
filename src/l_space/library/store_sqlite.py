@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from l_space.library.filters import BookFilter
-from l_space.library.models import NON_BOOK_FORMATS, Book
+from l_space.library.models import Book
 from l_space.library.store import LibraryStore
 
 SCHEMA_VERSION = 2
@@ -117,57 +117,54 @@ def index_rows(book: Book) -> IndexRows:
     )
 
 
-def _json(path: str) -> str:
-    return f"json_extract(data, '{path}')"
-
-
-def _contains_any(needle: str, values_sql: str) -> tuple[str, list]:
-    """SQL for ``queries._contains``: casefolded substring test against a value expression."""
-    return f"instr(casefold({values_sql}), ?) > 0", [needle.casefold().strip()]
+def _needle(text: str) -> str:
+    """Normalise a search term exactly as ``queries._contains`` does."""
+    return text.casefold().strip()
 
 
 def build_where(f: BookFilter) -> tuple[str, list]:
     """WHERE clause (and parameters) equivalent to ``queries.filter_books``.
 
-    Everything lives in the ``data`` JSON column, so fields are read with json_extract and the
-    list fields with json_each. ``casefold`` is a Python function registered on the connection,
-    which keeps matching identical to the pure-Python version (full Unicode, no LIKE wildcards).
+    Plain SQL over the derived columns and child tables. The ``*_cf`` values were casefolded in
+    Python when written, and search terms are casefolded here with the same ``str.casefold``, so
+    matching is identical to the pure-Python version (full Unicode, and ``instr`` rather than
+    ``LIKE`` so ``%`` and ``_`` are ordinary characters).
     """
-    # A missing format counts as an audiobook, so test with COALESCE: NOT IN on NULL is NULL.
-    marks = ", ".join("?" for _ in NON_BOOK_FORMATS)
-    clauses = [f"COALESCE({_json('$.format')}, '') NOT IN ({marks})"]
-    params: list = sorted(NON_BOOK_FORMATS)
+    clauses = ["is_audiobook = 1"]
+    params: list = []
 
-    def each(path: str, member: str | None, needle: str) -> None:
-        value = "value" if member is None else f"json_extract(value, '{member}')"
-        test, p = _contains_any(needle, value)
-        clauses.append(f"EXISTS (SELECT 1 FROM json_each(data, '{path}') WHERE {test})")
-        params.extend(p)
+    def exists_in(table: str, column: str, text: str, role: str | None = None) -> str:
+        sql = f"SELECT 1 FROM {table} WHERE book_id = books.id"
+        if role:
+            sql += " AND role = ?"
+            params.append(role)
+        sql += f" AND instr({column}, ?) > 0"
+        params.append(_needle(text))
+        return f"EXISTS ({sql})"
 
     if f.author:
-        each("$.authors", None, f.author)
+        clauses.append(exists_in("book_people", "name_cf", f.author, "author"))
     if f.narrator:
-        each("$.narrators", None, f.narrator)
+        clauses.append(exists_in("book_people", "name_cf", f.narrator, "narrator"))
     if f.series:
-        each("$.series", "$.name", f.series)
+        clauses.append(exists_in("book_series", "name_cf", f.series))
     if f.category:
-        needle = f.category.casefold().strip()
-        tags = "EXISTS (SELECT 1 FROM json_each(data, '$.tags') WHERE instr(casefold(value), ?) > 0)"
+        # Parent and child are always present (stored '' when absent), so a whitespace-only term
+        # matches every book, as it does in Python.
+        params.extend([_needle(f.category)] * 2)  # the two instr terms come first
+        tags = exists_in("book_tags", "tag_cf", f.category)  # then its parameter
         clauses.append(
-            "(instr(casefold(COALESCE(" + _json("$.parent_category") + ", '')), ?) > 0"
-            " OR instr(casefold(COALESCE(" + _json("$.child_category") + ", '')), ?) > 0"
-            f" OR {tags})"
+            f"(instr(parent_category_cf, ?) > 0 OR instr(child_category_cf, ?) > 0 OR {tags})"
         )
-        params.extend([needle, needle, needle])
     # NULL never satisfies a comparison, so unknown length / rating never match, as in Python.
     if f.min_minutes is not None:
-        clauses.append(f"{_json('$.duration_minutes')} >= ?")
+        clauses.append("duration_minutes >= ?")
         params.append(f.min_minutes)
     if f.max_minutes is not None:
-        clauses.append(f"{_json('$.duration_minutes')} <= ?")
+        clauses.append("duration_minutes <= ?")
         params.append(f.max_minutes)
     if f.min_my_rating is not None:
-        clauses.append(f"{_json('$.my_rating')} >= ?")
+        clauses.append("my_rating >= ?")
         params.append(f.min_my_rating)
     return " AND ".join(clauses), params
 
@@ -182,9 +179,6 @@ class SqliteLibraryStore(LibraryStore):
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.execute("PRAGMA foreign_keys = ON")  # per connection; makes cascades work
-        self.conn.create_function(
-            "casefold", 1, lambda v: v.casefold() if isinstance(v, str) else None, deterministic=True
-        )
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
