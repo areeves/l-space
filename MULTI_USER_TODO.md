@@ -114,7 +114,7 @@ Mark each as decided and record the outcome.
   short, and building B first would be premature optimisation. Revisit with data (queue wait,
   429 rate, total latency; see phase 3). Streaming is not planned: the grounding check
   validates the finished draft, so token streaming would show unverified text.
-- [x] **D5. Public identifiers.** *Decided (contingent on D7 choosing upsert):* each book
+- [x] **D5. Public identifiers.** *Decided (relies on D7's upsert import):* each book
   gets an opaque random `public_id`, generated when the row is first inserted, unique per user.
   Routes address books by `(user_id, public_id)`; another user's id returns 404, the same as
   an unknown id. The internal integer `id` is never exposed. `source_id` (the ASIN) is shown
@@ -126,10 +126,14 @@ Mark each as decided and record the outcome.
   import.
 - [ ] **D6. `Book.raw`.** Keep, compress, or drop? (Affects per-user storage and every
   `data` blob.)
-- [ ] **D7. Import semantics.** Replace-all (today), or upsert + delete-missing so ids stay
-  stable across re-imports? ALE exports are full snapshots, so the end state is the same;
-  stable ids matter for caching and any future per-book user state.
-  *Recommendation:* upsert + delete-missing.
+- [x] **D7. Import semantics.** *Decided:* upsert + delete-missing, replacing replace-all. In
+  one transaction, per user, rows are matched by `source_id`: changed rows are updated in
+  place (keeping `id` and `public_id`), identical rows are skipped, new rows are inserted, and
+  books missing from the CSV are deleted. The import returns added / updated / unchanged /
+  removed counts. Why: D5's `public_id` needs rows to survive re-imports; skipping unchanged
+  rows lets the library version (the phase 3 cache key) change only when something really
+  changed; and stable rows leave room for per-book user state (the README's planned
+  "correct the recommendations"). No soft-delete until there is per-book state to lose.
 - [ ] **D8. Connection strategy on SQLite.** One connection per request from a factory (WAL +
   `busy_timeout`) versus one shared connection with a lock. Today `check_same_thread=False`
   is set on a per-request connection. *Largely answered by D9:* one SQLAlchemy engine with a
@@ -151,8 +155,7 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 0: Preparation
 
-- [ ] Decide D6-D8 above and record them (D1-D5 and D9 are decided; D5 depends on D7
-  choosing upsert).
+- [ ] Decide D6 and D8 above and record them (D1-D5, D7 and D9 are decided).
 - [ ] Test scaffolding: a fixture that creates two users, each with a distinct library.
 - [ ] README positioning note (see section 1), drafted on this branch only.
 
@@ -215,9 +218,16 @@ migration are written once.
 - [ ] **Migration.** An Alembic revision (after phase 0.5's baseline). A single-user database
   upgrades by creating one default owner and assigning all existing books to it, with no data
   loss (see section 8).
-- [ ] **Scoped store API.** `LibraryStore.for_user(user_id)`; `replace_all` becomes
-  `DELETE ... WHERE user_id = ?` plus insert, in one transaction; `all_books`, `filter_books`,
-  `count_books` all scoped. There should be no store method that reads books without a scope.
+- [ ] **Scoped store API.** `LibraryStore.for_user(user_id)`; `replace_all` is replaced by an
+  upsert import (next item); `all_books`, `filter_books`, `count_books` all scoped. There
+  should be no store method that reads books without a scope.
+- [ ] **Upsert import (D7).** In one transaction, per user: match CSV rows to existing books
+  by `source_id`; update changed rows in place (keeping `id` and `public_id`), skip rows whose
+  stored `data` blob is identical, insert new rows with a fresh `public_id`, delete the user's
+  books that are absent from the CSV (child rows cascade); an updated book's child rows are
+  replaced. Duplicate ASINs within one CSV: the last row wins, as today. Return an
+  `ImportResult` with added / updated / unchanged / removed counts. Bump the user's library
+  version only when something changed.
 - [ ] **Use the store, not lists.** `execute(plan, store)` and
   `answer_question(question, store, ...)` replace the `books: list[Book]` parameter (this
   also touches `evals/run.py`, `tests/test_ask_pipeline.py` and `tests/test_ask_executor.py`,
@@ -286,7 +296,7 @@ migration are written once.
 - [ ] **Rate limits.** In-memory token bucket per user, plus a daily quota stored in the
   database.
 - [ ] **Answer cache.** Key: `(user_id, library_version, normalized question, writer model,
-  router model)`. `library_version` is bumped on import. Plans are deterministic at
+  router model)`. `library_version` is bumped by an import only when it changed something (D7). Plans are deterministic at
   temperature 0, so caching is sound; do not cache router errors or fallback answers without
   deciding that deliberately.
 - Deferred (D4): `POST /ask` returns 202 with a job id and `GET /ask/{id}` polls; jobs table;
