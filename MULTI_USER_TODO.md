@@ -81,11 +81,15 @@ client -> reverse proxy (TLS) -> FastAPI app (one worker)
 
 Mark each as decided and record the outcome.
 
-- [ ] **D1. Database.** SQLite (WAL) first, or Postgres from the start?
-  *Recommendation:* do tenancy on SQLite (it is database-agnostic work), move to Postgres in
-  phase 5. Porting notes: `instr` -> `strpos`; `data` JSON -> JSONB; hand-rolled
-  `PRAGMA user_version` rebuild -> Alembic; `AUTOINCREMENT` -> identity column; the casefolded
-  columns stay computed in Python, so matching semantics do not change.
+- [x] **D1. Database.** *Decided:* support both SQLite and Postgres behind the store
+  interface. Start with SQLite (WAL); add the Postgres implementation later (phase 5).
+  Porting notes: `instr` -> `strpos`; `AUTOINCREMENT` -> identity column; `ORDER BY title`
+  needs `COLLATE "C"` on Postgres to match SQLite's binary order (and the Python oracle). The
+  casefolded columns stay computed in Python, so matching semantics do not change. `data` stays
+  plain TEXT on both (nothing queries into it any more, and JSONB would not preserve the exact
+  bytes that make rebuilds reproducible), so no JSONB is needed. With D9 the Postgres
+  "implementation" is mostly the same SQLAlchemy-based store pointed at a Postgres engine, plus
+  the dialect-specific pieces above.
 - [ ] **D2. Ownership key.** `user_id` on `books` now, or a `libraries` table with `library_id`?
   *Recommendation:* `user_id` (one library per user). Revisit only if sharing becomes a goal.
 - [ ] **D3. Authentication.** Password + argon2 with a cookie session, bearer JWT, or OAuth?
@@ -106,7 +110,16 @@ Mark each as decided and record the outcome.
   *Recommendation:* upsert + delete-missing.
 - [ ] **D8. Connection strategy on SQLite.** One connection per request from a factory (WAL +
   `busy_timeout`) versus one shared connection with a lock. Today `check_same_thread=False`
-  is set on a per-request connection.
+  is set on a per-request connection. *Largely answered by D9:* one SQLAlchemy engine with a
+  pool, and WAL / `busy_timeout` / `foreign_keys` applied in a connect hook. Confirm during
+  phase 0.5.
+- [x] **D9. Query layer.** *Decided:* SQLAlchemy 2.0 **Core** (tables and query expressions,
+  not ORM entities, not SQLModel) plus **Alembic** for migrations, introduced in phase 0.5,
+  before the tenancy work. Rationale: the data layer is query-heavy and `Book` is already a
+  Pydantic model, so entity mappings would only duplicate it; the first real migration (the
+  tenancy change) should not be written in the hand-rolled `user_version` scheme and then
+  redone; and the Postgres port shrinks to dialect-specific pieces. The `LibraryStore`
+  interface stays, for the list-backed fake and tests.
 
 ---
 
@@ -116,9 +129,56 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 0: Preparation
 
-- [ ] Decide D1-D8 above and record them.
+- [ ] Decide D2-D8 above and record them (D1 and D9 are decided).
 - [ ] Test scaffolding: a fixture that creates two users, each with a distinct library.
 - [ ] README positioning note (see section 1), drafted on this branch only.
+
+### Phase 0.5: Port the data layer to SQLAlchemy Core and Alembic (D9)
+
+A behaviour-preserving refactor with no new features. The existing differential store tests
+and schema tests are the safety net. It lands before phase 1 so the tenancy SQL and its
+migration are written once.
+
+- [ ] Add dependencies: `sqlalchemy>=2` and `alembic`. The Postgres driver (`psycopg`) waits
+  for phase 5, but write everything dialect-aware now.
+- [ ] **Schema as code.** Define `books`, `book_people`, `book_series`, `book_tags` once as
+  SQLAlchemy `Table` objects on a shared `MetaData` (new module, for example
+  `library/tables.py`): same columns, the `role` CHECK, `ON DELETE CASCADE` foreign keys and
+  the indexes from the current schema. `data` is plain `Text`.
+- [ ] **Engine in one place.** `Settings.database_url` (default `sqlite:///data/l-space.db`;
+  keep `db_path` working for existing `.env` files and compose, then deprecate). A connect
+  hook on SQLite sets `PRAGMA foreign_keys=ON`, `journal_mode=WAL` and `busy_timeout`. Handle
+  `:memory:` for tests (shared connection / `StaticPool`).
+- [ ] **Port the store.** `SqliteLibraryStore` becomes a store built on an engine (for
+  example `SqlLibraryStore`), using Core `insert` / `select` / `delete`. `index_rows()` stays
+  the single place that derives columns and child rows. Keep the `SqliteLibraryStore` name
+  as an alias until the tests and callers are updated.
+- [ ] **`build_where` returns a SQLAlchemy expression**, not `(sql, params)`: `exists()`
+  subqueries over the child tables, comparison expressions on the numeric columns. Substring
+  matching goes through one helper (`instr(...) > 0` on SQLite, `strpos(...) > 0` on
+  Postgres, via a dialect-specific compile rule), always against the pre-casefolded columns
+  and a needle normalised with `str.casefold().strip()`.
+- [ ] **Ordering helper.** One `title_order()` used everywhere `ORDER BY title` appears, so
+  Postgres can apply `COLLATE "C"` later without touching callers. On SQLite it stays binary.
+- [ ] **Alembic.** `alembic.ini` and `migrations/` reading the URL from `Settings`;
+  `render_as_batch=True` for SQLite. Baseline revision `0001` is the current v2 schema.
+- [ ] **`l-space migrate`** (upgrade to head). Detect existing databases: a v2 database
+  (`PRAGMA user_version = 2`, no `alembic_version`) is stamped at `0001`; a pre-columns
+  database (`user_version` 0) first goes through the existing rebuild-from-`data` upgrade,
+  kept as a one-time step. The app no longer creates or rebuilds the schema in `__init__`.
+- [ ] Test fixtures create the schema with `metadata.create_all` (fast), plus one test that
+  Alembic's head matches the metadata (no drift) and one that exercises the real migration
+  path on a v2 file database and on a legacy database.
+- [ ] Adapt `tests/test_store_schema.py`: the derived-columns invariant and the cascade and
+  re-import tests stay; the legacy-rebuild and atomic-rebuild tests become migrate tests.
+- [ ] Parametrize the store fixture over database back ends (SQLite only for now; Postgres
+  is added in phase 5).
+- [ ] **Acceptance:** the existing suite passes with only import and fixture changes; ruff is
+  clean; `EXPLAIN QUERY PLAN` on SQLite still uses the same indexes for the same queries; no
+  API behaviour change.
+- Out of scope: async engine (decide in phase 3), the Postgres implementation, tenancy.
+- Risks: SQLite `:memory:` and connection pooling quirks; Alembic autogenerate quirks on
+  SQLite; keeping the substring helper's behaviour identical to the pure-Python oracle.
 
 ### Phase 1: Tenancy in the data layer (the core change)
 
@@ -128,8 +188,9 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
   indexes with `user_id`: `(user_id, title)` can also serve `ORDER BY title` without the temp
   sort, `(user_id, duration_minutes)`, `(user_id, my_rating)`. Child tables keep `book_id` and
   inherit ownership.
-- [ ] **Migration.** `SCHEMA_VERSION` 3. A single-user database upgrades by creating one
-  default owner and assigning all existing books to it, with no data loss (see section 8).
+- [ ] **Migration.** An Alembic revision (after phase 0.5's baseline). A single-user database
+  upgrades by creating one default owner and assigning all existing books to it, with no data
+  loss (see section 8).
 - [ ] **Scoped store API.** `LibraryStore.for_user(user_id)`; `replace_all` becomes
   `DELETE ... WHERE user_id = ?` plus insert, in one transaction; `all_books`, `filter_books`,
   `count_books` all scoped. There should be no store method that reads books without a scope.
@@ -198,10 +259,9 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 - [ ] FastAPI lifespan: build the engine or connection factory once and keep it on
   `app.state`; delete the per-request `LibraryStore.from_settings`.
-- [ ] **Migrations out of the request path.** `l-space migrate` runs at deploy time (or once at
-  startup before serving). The app refuses to serve on a schema version mismatch. The current
-  rebuild-on-open in `SqliteLibraryStore._ensure_schema` is right for a local tool and wrong
-  for a web service; keep it only behind the explicit migrate command.
+- [ ] **Migrations out of the request path.** Alembic and `l-space migrate` exist from phase
+  0.5. Here: run migrate at deploy time (compose startup) before the app serves, and make the
+  app refuse to serve when the database is not at the current revision.
 - [ ] Pagination on `GET /library/books` (limit/offset or keyset on `(title, id)`) with a
   maximum page size.
 - [ ] Settings: secret key, database URL, CORS origins, allowed hosts, signup mode, quotas.
@@ -212,9 +272,11 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 5: Packaging and deployment
 
-- [ ] Postgres service in `compose.yaml`; a `PostgresLibraryStore` behind the same interface;
-  Alembic migrations. **Run the existing differential store tests against both
-  implementations** (parametrized fixture). That is what the pure-Python oracle was built for.
+- [ ] Postgres service in `compose.yaml` and a Postgres driver. Point the phase 0.5 engine at
+  it and add the dialect-specific pieces (`strpos` substring, upsert, `COLLATE "C"` ordering).
+  Verify the Alembic revisions run on Postgres. **Run the existing differential store tests
+  against both databases** (parametrized fixture). That is what the pure-Python oracle was
+  built for.
 - [ ] Reverse proxy with TLS (for example Caddy), or documented plain-HTTP dev mode.
 - [ ] Split the Dockerfile into a dev/test image and a runtime image (the runtime image
   currently installs `.[dev]` and copies `tests/` and `evals/`); run as non-root; add a
@@ -256,8 +318,9 @@ Notes for whoever builds it: the OpenAPI schema is the contract; decide cookie v
   implementations once there is more than one.
 - Isolation tests (phase 1) and the route-enumeration auth test (phase 2).
 - Concurrency tests for the gate with a blocking fake provider (phase 3).
-- Migration tests: a v2 single-user database upgrades to v3 with all books owned by the
-  default user, ids and `data` blobs intact.
+- Migration tests: a v2 single-user database upgrades through the Alembic revisions with all
+  books owned by the default user, ids and `data` blobs intact; Alembic's head matches the
+  SQLAlchemy metadata (no drift).
 - Evals: `evals/run.py` and `tests/test_evals.py` assume one library; give them a test user.
 
 ---
@@ -304,9 +367,12 @@ Notes for whoever builds it: the OpenAPI schema is the contract; decide cookie v
 ## Suggested order and rough size
 
 1. Phase 0 decisions (small).
-2. Phase 1 tenancy and scoped store (large; the foundation, and the part most reusable if the
+2. Phase 0.5 SQLAlchemy Core and Alembic port (medium; behaviour-preserving, guarded by the
+   existing tests, and it makes later phases cheaper).
+3. Phase 1 tenancy and scoped store (large; the foundation, and the part most reusable if the
    experiment is abandoned, since it also removes the whole-library loads).
-3. Phase 2 auth and upload (medium).
-4. Phase 3 model gate (medium; this is where the design risk is).
-5. Phase 4 lifecycle and hygiene (medium).
-6. Phase 5 Postgres and deployment (medium to large; optional for a first demo).
+4. Phase 2 auth and upload (medium).
+5. Phase 3 model gate (medium; this is where the design risk is).
+6. Phase 4 lifecycle and hygiene (medium).
+7. Phase 5 Postgres and deployment (smaller now that the store is dialect-aware; optional for
+   a first demo).
