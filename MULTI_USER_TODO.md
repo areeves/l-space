@@ -192,14 +192,16 @@ checklist after this list is grouped by step.
    test against the hand-written schema.
 2. [x] `mu/05-2-engine`: `Settings.database_url`; engine factory with D8's pool of one and the
    connect hook; tests. Independent of step 1.
-3. [ ] `mu/05-3-store-on-core`: `SqlLibraryStore(engine)` for the write path, hydration and
-   schema init (including the legacy rebuild); queries still run as SQL text;
-   `SqliteLibraryStore` kept as an alias.
+3. [x] `mu/05-3-store-on-core`: `SqlLibraryStore(engine)` for the write path, hydration and
+   schema init (including the legacy rebuild, now transactional: the engine emits `BEGIN`
+   itself so DDL can roll back); queries still run as SQL text; `get_engine(settings)` shares
+   one engine per database URL; the hand-written `SCHEMA` and the step-1 parity test are gone
+   (the store creates tables from `tables.py`; a test checks a database written by the
+   previous release opens untouched); `SqliteLibraryStore` kept as an alias.
 4. [ ] `mu/05-4-query-expressions`: `build_where` as SQLAlchemy expressions; the
    dialect-aware substring helper; `title_order()`.
 5. [ ] `mu/05-5-alembic`: Alembic baseline `0001`; `l-space migrate`; upgrade-to-head on
-   startup behind a setting; remove the hand-written schema, the `user_version` logic and the
-   step-1 parity test; compose and Dockerfile updates.
+   startup behind a setting; remove the `user_version` logic; compose and Dockerfile updates.
 6. [ ] `mu/05-6-cleanup`: query-plan check, parametrized store fixture, docs, drop the alias.
 
 Order: steps 1 and 2 in parallel (both add the same dependency lines, so they merge

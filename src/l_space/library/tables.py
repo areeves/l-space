@@ -1,13 +1,12 @@
 """The database schema as SQLAlchemy ``Table`` objects: one definition of what is stored.
 
 ``books.data`` (the full Book as JSON) is the source of truth. Every other column and the child
-tables are a derived projection of it, produced by ``store_sqlite.index_rows`` and nothing else.
+tables are a derived projection of it, produced by ``store_sql.index_rows`` and nothing else.
 Child ``*_cf`` columns are casefolded in Python when written, with the same ``str.casefold`` the
 pure-Python queries use, so SQL matching cannot disagree with them.
 
-Nothing reads these tables yet. ``tests/test_tables_parity.py`` checks that they describe the
-same SQLite schema as the hand-written SQL in ``store_sqlite.py``; later steps build the store
-and the Alembic migrations on them (see MULTI_USER_TODO.md, phase 0.5).
+The store (``store_sql.py``) creates and fills these tables; the Alembic migrations (phase 0.5,
+step 5) will be built on them too.
 """
 
 from sqlalchemy import (

@@ -134,3 +134,33 @@ def test_database_url_comes_from_the_environment(monkeypatch):
 
 def test_the_default_pool_timeout():
     assert Settings(_env_file=None).db_pool_timeout == 30.0
+
+
+def test_ddl_is_part_of_the_transaction(engine):
+    # The driver alone would run DDL outside any transaction (see engine.py), so an interrupted
+    # schema rebuild could not be rolled back.
+    with pytest.raises(RuntimeError), engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE t (x INTEGER)")
+        raise RuntimeError("interrupted")
+    with engine.connect() as conn:
+        count = conn.exec_driver_sql("SELECT COUNT(*) FROM sqlite_master WHERE name = 't'")
+        assert count.scalar() == 0
+
+
+def test_a_failed_transaction_rolls_back_its_writes(engine):
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE t (x INTEGER)")
+    with pytest.raises(RuntimeError), engine.begin() as conn:
+        conn.exec_driver_sql("INSERT INTO t VALUES (1)")
+        raise RuntimeError("interrupted")
+    with engine.begin() as conn:
+        conn.exec_driver_sql("INSERT INTO t VALUES (2)")
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT x FROM t").all() == [(2,)]
+
+
+def test_the_driver_leaves_transaction_control_to_the_engine(engine):
+    # With the driver's own handling on, it and the engine's BEGIN could both start
+    # transactions (behaviour differs across Python versions), so it is switched off.
+    with engine.connect() as conn:
+        assert conn.connection.dbapi_connection.isolation_level is None

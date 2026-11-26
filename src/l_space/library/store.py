@@ -1,4 +1,4 @@
-"""SQLite persistence. Exact questions (counts, filters, series status) are answered here,
+"""Persistence. Exact questions (counts, filters, series status) are answered here,
 with plain code, never by a language model."""
 
 from abc import ABC, abstractmethod
@@ -13,8 +13,10 @@ from l_space.library.models import Book
 class LibraryStore(ABC):
     @classmethod
     def from_settings(cls, settings: Settings) -> "LibraryStore":
-        from l_space.library.store_sqlite import SqliteLibraryStore
-        return SqliteLibraryStore(settings.db_path)
+        from l_space.library.engine import get_engine
+        from l_space.library.store_sql import SqlLibraryStore
+
+        return SqlLibraryStore(get_engine(settings))
 
     @abstractmethod
     def replace_all(self, books: Iterable[Book]) -> int:
