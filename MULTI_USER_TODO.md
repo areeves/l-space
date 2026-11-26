@@ -143,11 +143,20 @@ Mark each as decided and record the outcome.
   rows lets the library version (the phase 3 cache key) change only when something really
   changed; and stable rows leave room for per-book user state (the README's planned
   "correct the recommendations"). No soft-delete until there is per-book state to lose.
-- [ ] **D8. Connection strategy on SQLite.** One connection per request from a factory (WAL +
-  `busy_timeout`) versus one shared connection with a lock. Today `check_same_thread=False`
-  is set on a per-request connection. *Largely answered by D9:* one SQLAlchemy engine with a
-  pool, and WAL / `busy_timeout` / `foreign_keys` applied in a connect hook. Confirm during
-  phase 0.5.
+- [x] **D8. Connection strategy on SQLite.** *Decided:* a SQLAlchemy engine (D9) with a pool
+  of one (`pool_size=1, max_overflow=0`), so database access is serialized. Rationale: SQLite
+  here is for development and demos, each database call takes milliseconds, and the real
+  bottleneck is the model, so serialization costs nothing measurable and removes the need for
+  `BEGIN IMMEDIATE`, WAL and pool tuning. Rules: (1) connection scope is one store call or one
+  transaction, never a whole request: a request holding the only connection across the
+  `/ask` queue wait or the model call would block everything, including login and `/health`;
+  (2) the connect hook sets `PRAGMA foreign_keys=ON` and a `busy_timeout`, because the CLI and
+  `migrate` are separate processes on the same file; (3) keep the database on a named Docker
+  volume and back it up with SQLite's online backup. Cost: serialization hides race
+  conditions that would appear under Postgres's real concurrency, so rely on database
+  constraints and atomic updates (not check-then-insert) and keep concurrency tests. Moving to
+  a real pool later is configuration plus WAL and `BEGIN IMMEDIATE`; Postgres uses a normal
+  pool anyway.
 - [x] **D9. Query layer.** *Decided:* SQLAlchemy 2.0 **Core** (tables and query expressions,
   not ORM entities, not SQLModel) plus **Alembic** for migrations, introduced in phase 0.5,
   before the tenancy work. Rationale: the data layer is query-heavy and `Book` is already a
@@ -164,7 +173,7 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 0: Preparation
 
-- [ ] Decide D8 above and record it (D1-D7 and D9 are decided).
+- [x] Decide D1-D9 and record them (all recorded in section 4).
 - [ ] Test scaffolding: a fixture that creates two users, each with a distinct library.
 - [ ] README positioning note (see section 1), drafted on this branch only.
 
@@ -180,10 +189,13 @@ migration are written once.
   SQLAlchemy `Table` objects on a shared `MetaData` (new module, for example
   `library/tables.py`): same columns, the `role` CHECK, `ON DELETE CASCADE` foreign keys and
   the indexes from the current schema. `data` is plain `Text`.
-- [ ] **Engine in one place.** `Settings.database_url` (default `sqlite:///data/l-space.db`;
-  keep `db_path` working for existing `.env` files and compose, then deprecate). A connect
-  hook on SQLite sets `PRAGMA foreign_keys=ON`, `journal_mode=WAL` and `busy_timeout`. Handle
-  `:memory:` for tests (shared connection / `StaticPool`).
+- [ ] **Engine in one place (D8).** `Settings.database_url` (default
+  `sqlite:///data/l-space.db`; keep `db_path` working for existing `.env` files and compose,
+  then deprecate). SQLite uses a pool of one (`pool_size=1, max_overflow=0`, with a sensible
+  `pool_timeout`), so access is serialized. Connection scope is one store call or one
+  transaction, never a whole request. A connect hook sets `PRAGMA foreign_keys=ON` and
+  `busy_timeout`; WAL and `BEGIN IMMEDIATE` wait until real concurrency is needed. Handle
+  `:memory:` for tests (`StaticPool`).
 - [ ] **Port the store.** `SqliteLibraryStore` becomes a store built on an engine (for
   example `SqlLibraryStore`), using Core `insert` / `select` / `delete`. `index_rows()` stays
   the single place that derives columns and child rows. Keep the `SqliteLibraryStore` name
@@ -288,6 +300,10 @@ migration are written once.
   without credentials (enumerate the routes so a new route cannot be forgotten); wrong-user
   access; login throttling; session rotation.
 
+- [ ] Concurrency tests (D8): concurrent registrations of the same username create exactly
+  one account; concurrent imports for one user serialize correctly and for two users both
+  succeed. Rely on unique constraints and atomic updates, not check-then-insert.
+
 ### Phase 3: Gate the model
 
 - [ ] **`LlmGate`.** A semaphore sized from the model server's real parallelism (default 1)
@@ -313,7 +329,9 @@ migration are written once.
   the measurements below show a real problem. Pick the thresholds when there is data, for
   example a p95 queue wait or a 429 rate that users would notice.
 - [ ] Tests with a `FakeProvider` that blocks: the gate admits N and rejects the rest;
-  queue-wait timeout; fairness between users; quota enforcement.
+  queue-wait timeout; fairness between users; quota enforcement. Also: while an `/ask` is held
+  in the gate, other requests still reach the database (no connection is held across the
+  queue wait or the model call; D8).
 - [ ] Observability: add `queue_wait` to `timings_ms`; log queue depth; count 429
   rejections and record total request latency, so the decision about the job API is made from
   data.
@@ -345,7 +363,9 @@ migration are written once.
   currently installs `.[dev]` and copies `tests/` and `evals/`); run as non-root; add a
   healthcheck; pin the Ollama image tag.
 - [ ] Do not publish Ollama's port 11434 to the host.
-- [ ] Backup instructions for the database volume.
+- [ ] Backup instructions for the database volume, using SQLite's online backup
+  (`VACUUM INTO` or the backup API) rather than a plain file copy. Keep the SQLite database on
+  a named Docker volume, not a bind mount.
 - [ ] CI: pytest and ruff, on both databases once Postgres exists.
 
 ### Phase 6: Frontend (out of scope here)
