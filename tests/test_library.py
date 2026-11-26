@@ -2,7 +2,8 @@ from pathlib import Path
 
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import queries
-from l_space.library.store import LibraryStore, SqliteLibraryStore
+from l_space.library.store import LibraryStore
+from l_space.library.store_sqlite import SqliteLibraryStore
 
 SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 

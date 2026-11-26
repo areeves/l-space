@@ -5,7 +5,7 @@ from conftest import SAMPLE
 from fakes import FakeProvider
 from l_space.api.routes import get_provider, get_store
 from l_space.ingestion.loaders import load_ale_csv
-from l_space.library.store import SqliteLibraryStore
+from l_space.library.store_sqlite import SqliteLibraryStore
 from l_space.main import create_app
 
 
