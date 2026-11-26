@@ -198,8 +198,10 @@ checklist after this list is grouped by step.
    one engine per database URL; the hand-written `SCHEMA` and the step-1 parity test are gone
    (the store creates tables from `tables.py`; a test checks a database written by the
    previous release opens untouched); `SqliteLibraryStore` kept as an alias.
-4. [ ] `mu/05-4-query-expressions`: `build_where` as SQLAlchemy expressions; the
-   dialect-aware substring helper; `title_order()`.
+4. [x] `mu/05-4-query-expressions`: `build_where` returns a SQLAlchemy expression; a
+   dialect-aware `contains()` (`instr` on SQLite, `strpos` on Postgres, never LIKE);
+   `title_order()` (`COLLATE "C"` on Postgres); the store's queries are built with `select()`;
+   compile tests for both dialects (Postgres is compiled, not yet run).
 5. [ ] `mu/05-5-alembic`: Alembic baseline `0001`; `l-space migrate`; upgrade-to-head on
    startup behind a setting; remove the `user_version` logic; compose and Dockerfile updates.
 6. [ ] `mu/05-6-cleanup`: query-plan check, parametrized store fixture, docs, drop the alias.

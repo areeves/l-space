@@ -14,7 +14,22 @@ SQLite pool holds a single connection, so a call that kept it would block every 
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import Connection, Engine, delete, insert, select
+from sqlalchemy import (
+    Connection,
+    Engine,
+    Integer,
+    Table,
+    and_,
+    delete,
+    exists,
+    func,
+    insert,
+    or_,
+    select,
+)
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.functions import FunctionElement
 
 from l_space.library import tables
 from l_space.library.filters import BookFilter
@@ -74,51 +89,85 @@ def _needle(text: str) -> str:
     return text.casefold().strip()
 
 
-def build_where(f: BookFilter) -> tuple[str, list]:
-    """WHERE clause (and parameters) equivalent to ``queries.filter_books``.
+class _Position(FunctionElement):
+    """1-based position of ``needle`` in ``haystack``, 0 if absent; the dialect picks the function."""
 
-    Plain SQL over the derived columns and child tables. The ``*_cf`` values were casefolded in
-    Python when written, and search terms are casefolded here with the same ``str.casefold``, so
-    matching is identical to the pure-Python version (full Unicode, and ``instr`` rather than
-    ``LIKE`` so ``%`` and ``_`` are ordinary characters).
+    type = Integer()
+    inherit_cache = True
+
+    def __init__(self, haystack, needle):
+        super().__init__(haystack, needle)
+
+
+@compiles(_Position)
+def _position_default(element, compiler, **kw):
+    return f"instr({compiler.process(element.clauses, **kw)})"  # SQLite
+
+
+@compiles(_Position, "postgresql")
+def _position_postgresql(element, compiler, **kw):
+    return f"strpos({compiler.process(element.clauses, **kw)})"
+
+
+def contains(column: ColumnElement, text: str) -> ColumnElement[bool]:
+    """``column`` contains the normalised ``text``.
+
+    ``instr`` / ``strpos`` rather than LIKE, so ``%`` and ``_`` are ordinary characters and no
+    escaping is needed. The column holds casefolded text and the needle is casefolded in Python.
     """
-    clauses = ["is_audiobook = 1"]
-    params: list = []
+    return _Position(column, _needle(text)) > 0
 
-    def exists_in(table: str, column: str, text: str, role: str | None = None) -> str:
-        sql = f"SELECT 1 FROM {table} WHERE book_id = books.id"
+
+def title_order(dialect_name: str) -> ColumnElement:
+    """Order by title in code-point order, which is what Python's ``sorted`` does.
+
+    SQLite's default collation already is; Postgres follows the database locale unless told
+    otherwise (decision D1).
+    """
+    title = tables.books.c.title
+    return title.collate("C") if dialect_name == "postgresql" else title
+
+
+def build_where(f: BookFilter) -> ColumnElement[bool]:
+    """Filter condition equivalent to ``queries.filter_books``, as a SQLAlchemy expression.
+
+    Over the derived columns and child tables. The ``*_cf`` values were casefolded in Python when
+    written, and search terms are casefolded with the same ``str.casefold``, so matching is
+    identical to the pure-Python version (full Unicode).
+    """
+    books = tables.books
+
+    def exists_in(table: Table, column: str, text: str, role: str | None = None):
+        cond = [table.c.book_id == books.c.id, contains(table.c[column], text)]
         if role:
-            sql += " AND role = ?"
-            params.append(role)
-        sql += f" AND instr({column}, ?) > 0"
-        params.append(_needle(text))
-        return f"EXISTS ({sql})"
+            cond.append(table.c.role == role)
+        return exists().where(*cond)
 
+    conditions: list[ColumnElement[bool]] = [books.c.is_audiobook == 1]
     if f.author:
-        clauses.append(exists_in("book_people", "name_cf", f.author, "author"))
+        conditions.append(exists_in(tables.book_people, "name_cf", f.author, "author"))
     if f.narrator:
-        clauses.append(exists_in("book_people", "name_cf", f.narrator, "narrator"))
+        conditions.append(exists_in(tables.book_people, "name_cf", f.narrator, "narrator"))
     if f.series:
-        clauses.append(exists_in("book_series", "name_cf", f.series))
+        conditions.append(exists_in(tables.book_series, "name_cf", f.series))
     if f.category:
         # Parent and child are always present (stored '' when absent), so a whitespace-only term
         # matches every book, as it does in Python.
-        params.extend([_needle(f.category)] * 2)  # the two instr terms come first
-        tags = exists_in("book_tags", "tag_cf", f.category)  # then its parameter
-        clauses.append(
-            f"(instr(parent_category_cf, ?) > 0 OR instr(child_category_cf, ?) > 0 OR {tags})"
+        conditions.append(
+            or_(
+                contains(books.c.parent_category_cf, f.category),
+                contains(books.c.child_category_cf, f.category),
+                exists_in(tables.book_tags, "tag_cf", f.category),
+            )
         )
     # NULL never satisfies a comparison, so unknown length / rating never match, as in Python.
     if f.min_minutes is not None:
-        clauses.append("duration_minutes >= ?")
-        params.append(f.min_minutes)
+        conditions.append(books.c.duration_minutes >= f.min_minutes)
     if f.max_minutes is not None:
-        clauses.append("duration_minutes <= ?")
-        params.append(f.max_minutes)
+        conditions.append(books.c.duration_minutes <= f.max_minutes)
     if f.min_my_rating is not None:
-        clauses.append("my_rating >= ?")
-        params.append(f.min_my_rating)
-    return " AND ".join(clauses), params
+        conditions.append(books.c.my_rating >= f.min_my_rating)
+    return and_(*conditions)
 
 
 def _to_book(id_: int, data: str) -> Book:
@@ -207,24 +256,24 @@ class SqlLibraryStore(LibraryStore):
         return len(unique)
 
     def all_books(self) -> list[Book]:
-        query = select(tables.books.c.id, tables.books.c.data).order_by(tables.books.c.title)
+        return self._select_books(None)
+
+    def filter_books(self, f: BookFilter | None = None) -> list[Book]:
+        """Filtering happens in SQL, so only matching rows are parsed into Books."""
+        return self._select_books(build_where(f or BookFilter()))
+
+    def _select_books(self, where: ColumnElement[bool] | None) -> list[Book]:
+        query = select(tables.books.c.id, tables.books.c.data).order_by(
+            title_order(self.engine.dialect.name)
+        )
+        if where is not None:
+            query = query.where(where)
         with self.engine.connect() as conn:
             rows = conn.execute(query).all()
         # Parsed after the connection is released: CPU work never holds the pool's only slot.
         return [_to_book(id_, data) for id_, data in rows]
 
-    def filter_books(self, f: BookFilter | None = None) -> list[Book]:
-        """Filtering happens in SQL, so only matching rows are parsed into Books."""
-        where, params = build_where(f or BookFilter())
-        with self.engine.connect() as conn:
-            rows = conn.exec_driver_sql(
-                f"SELECT id, data FROM books WHERE {where} ORDER BY title", tuple(params)
-            ).all()
-        return [_to_book(id_, data) for id_, data in rows]
-
     def count_books(self, f: BookFilter | None = None) -> int:
-        where, params = build_where(f or BookFilter())
+        query = select(func.count()).select_from(tables.books).where(build_where(f or BookFilter()))
         with self.engine.connect() as conn:
-            return conn.exec_driver_sql(
-                f"SELECT COUNT(*) FROM books WHERE {where}", tuple(params)
-            ).scalar_one()
+            return conn.execute(query).scalar_one()
