@@ -124,8 +124,17 @@ Mark each as decided and record the outcome.
   use a dedicated `BookOut` schema, not the domain `Book`. The id is only stable across
   re-imports if import updates existing rows (D7); with replace-all it would change on every
   import.
-- [ ] **D6. `Book.raw`.** Keep, compress, or drop? (Affects per-user storage and every
-  `data` blob.)
+- [x] **D6. `Book.raw`.** *Decided:* keep `raw` inside the `data` blob, as today. Measured on
+  a real export of about 300 books: `raw` is about 77% of the stored blob (roughly 4 KB per
+  book, about 1.3 MB per library). A synthetic benchmark of that shape put parsing a whole
+  library at about 3 ms with `raw` and about 1.5 ms without, so there is no speed problem, and
+  moving `raw` to its own table would not reduce total storage. Nothing in the app reads
+  `raw` (the loader fills it, `/library/books` excludes it, two tests assert on it), and D5's
+  `BookOut` keeps it out of responses, so splitting it out later stays a contained migration.
+  Revisit if database size or backups start to matter (roughly hundreds of users), or to
+  retain less personal data per account. Likely moves, in order: compress the stored text,
+  then split it into a `book_raw` table loaded on demand. Dropping it would lose the ability
+  to re-derive fields after a parser fix without asking users to re-upload.
 - [x] **D7. Import semantics.** *Decided:* upsert + delete-missing, replacing replace-all. In
   one transaction, per user, rows are matched by `source_id`: changed rows are updated in
   place (keeping `id` and `public_id`), identical rows are skipped, new rows are inserted, and
@@ -155,7 +164,7 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 0: Preparation
 
-- [ ] Decide D6 and D8 above and record them (D1-D5, D7 and D9 are decided).
+- [ ] Decide D8 above and record it (D1-D7 and D9 are decided).
 - [ ] Test scaffolding: a fixture that creates two users, each with a distinct library.
 - [ ] README positioning note (see section 1), drafted on this branch only.
 
