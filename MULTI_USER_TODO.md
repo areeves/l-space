@@ -183,6 +183,28 @@ A behaviour-preserving refactor with no new features. The existing differential 
 and schema tests are the safety net. It lands before phase 1 so the tenancy SQL and its
 migration are written once.
 
+**Steps.** Each step is a PR against `multi-user`, from a branch named `mu/05-N-...` (git
+cannot create `multi-user/...` branches while a branch called `multi-user` exists). Merge each
+PR before starting one that depends on it. Every step keeps the whole suite green. The
+checklist after this list is grouped by step.
+
+1. [ ] `mu/05-1-schema-as-code`: dependencies; the tables as `Table` objects; a schema parity
+   test against the hand-written schema.
+2. [ ] `mu/05-2-engine`: `Settings.database_url`; engine factory with D8's pool of one and the
+   connect hook; tests. Independent of step 1.
+3. [ ] `mu/05-3-store-on-core`: `SqlLibraryStore(engine)` for the write path, hydration and
+   schema init (including the legacy rebuild); queries still run as SQL text;
+   `SqliteLibraryStore` kept as an alias.
+4. [ ] `mu/05-4-query-expressions`: `build_where` as SQLAlchemy expressions; the
+   dialect-aware substring helper; `title_order()`.
+5. [ ] `mu/05-5-alembic`: Alembic baseline `0001`; `l-space migrate`; upgrade-to-head on
+   startup behind a setting; remove the hand-written schema, the `user_version` logic and the
+   step-1 parity test; compose and Dockerfile updates.
+6. [ ] `mu/05-6-cleanup`: query-plan check, parametrized store fixture, docs, drop the alias.
+
+Order: steps 1 and 2 in parallel (both add the same dependency lines, so they merge
+cleanly), then 3, then 4 and 5 (independent of each other), then 6.
+
 - [ ] Add dependencies: `sqlalchemy>=2` and `alembic`. The Postgres driver (`psycopg`) waits
   for phase 5, but write everything dialect-aware now.
 - [ ] **Schema as code.** Define `books`, `book_people`, `book_series`, `book_tags` once as
