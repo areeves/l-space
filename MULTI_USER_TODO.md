@@ -90,8 +90,16 @@ Mark each as decided and record the outcome.
   bytes that make rebuilds reproducible), so no JSONB is needed. With D9 the Postgres
   "implementation" is mostly the same SQLAlchemy-based store pointed at a Postgres engine, plus
   the dialect-specific pieces above.
-- [ ] **D2. Ownership key.** `user_id` on `books` now, or a `libraries` table with `library_id`?
-  *Recommendation:* `user_id` (one library per user). Revisit only if sharing becomes a goal.
+- [x] **D2. Ownership key and data model.** *Decided:* `user_id` on `books` (one library per
+  user), and every user owns their own copy of every book: no shared catalog. One user's bad
+  data can never affect another's; per-user state (`my_rating`, `finished`, `minutes_left`)
+  stays on the same row as the book; tenant isolation stays a single filter. Costs: duplicated
+  `data` blobs (see D6) and possibly inconsistent spellings of the same book across users.
+  *Forward compatibility:* `source_id` (the ASIN) is the join key if ownership-based
+  recommendations are ever wanted. At that point add a plain index on `source_id` (the planned
+  indexes lead with `user_id`) and, optionally, a derived and rebuildable consensus catalog
+  that users can never edit. Privacy and abuse constraints on that are in section 9. Revisit
+  `libraries` / `library_id` only if sharing libraries becomes a goal.
 - [ ] **D3. Authentication.** Password + argon2 with a cookie session, bearer JWT, or OAuth?
   *Recommendation:* password + argon2, HttpOnly signed-cookie (or server-side) session if the
   first client is a same-origin web UI; JWT only for a cross-origin SPA or API clients. Signup
@@ -129,7 +137,7 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 0: Preparation
 
-- [ ] Decide D2-D8 above and record them (D1 and D9 are decided).
+- [ ] Decide D3-D8 above and record them (D1, D2 and D9 are decided).
 - [ ] Test scaffolding: a fixture that creates two users, each with a distinct library.
 - [ ] README positioning note (see section 1), drafted on this branch only.
 
@@ -348,6 +356,10 @@ Notes for whoever builds it: the OpenAPI schema is the contract; decide cookie v
   afterthought.
 - **Branch drift.** Merge `main` into `multi-user` often.
 - **Recommendations (planned feature)** will need per-user signals and per-user caches.
+  Using *other* users' libraries (ownership co-occurrence on ASIN, see D2) needs opt-in
+  consent and minimum aggregation thresholds. It must also assume the ASIN is user-supplied:
+  fake libraries could be submitted to skew results, so require minimum support before an
+  ASIN counts.
 - **Sharing libraries** would change D2; decide before building features that assume
   `user_id` is the only owner.
 
