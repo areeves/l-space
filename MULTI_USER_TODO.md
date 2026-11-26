@@ -100,10 +100,14 @@ Mark each as decided and record the outcome.
   indexes lead with `user_id`) and, optionally, a derived and rebuildable consensus catalog
   that users can never edit. Privacy and abuse constraints on that are in section 9. Revisit
   `libraries` / `library_id` only if sharing libraries becomes a goal.
-- [ ] **D3. Authentication.** Password + argon2 with a cookie session, bearer JWT, or OAuth?
-  *Recommendation:* password + argon2, HttpOnly signed-cookie (or server-side) session if the
-  first client is a same-origin web UI; JWT only for a cross-origin SPA or API clients. Signup
-  is invite-code or admin-created, never open, so strangers cannot spend your model time.
+- [x] **D3. Authentication.** *Decided:* password + argon2; login returns a random opaque
+  session token sent as `Authorization: Bearer ...`; the server stores only a hash of each
+  token in a `sessions` table, so sessions can be revoked. Signup is admin-created or
+  invite-code, never open, so strangers cannot spend your model time. No UI exists yet and
+  Swagger UI is the first client; the bearer scheme gives it a working Authorize button and
+  removes CSRF handling. Cookie transport on top of the same `sessions` table is deferred
+  until a same-origin web UI wants HttpOnly cookies. Not chosen: JWT (hard to revoke), OAuth /
+  SSO (external accounts, conflicts with self-hosted / offline use).
 - [ ] **D4. `/ask` execution model.** Synchronous behind a bounded queue (429 when full), a
   job + poll API, or streaming?
   *Recommendation:* synchronous with the gate first (phase 3), jobs only if the latency
@@ -137,7 +141,7 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 0: Preparation
 
-- [ ] Decide D3-D8 above and record them (D1, D2 and D9 are decided).
+- [ ] Decide D4-D8 above and record them (D1-D3 and D9 are decided).
 - [ ] Test scaffolding: a fixture that creates two users, each with a distinct library.
 - [ ] README positioning note (see section 1), drafted on this branch only.
 
@@ -224,10 +228,18 @@ migration are written once.
 
 - [ ] `core/security.py`: argon2 password hashing, constant-time comparison, minimum password
   policy.
-- [ ] Endpoints: `POST /auth/register` (gated by D3: invite code or admin), `POST
-  /auth/login`, `POST /auth/logout`, `GET /me`. Rotate the session on login. Cookie flags:
-  `HttpOnly`, `Secure`, `SameSite=Lax`. CSRF protection on state-changing routes if cookie
-  auth is chosen. Login throttling per username and per client address.
+- [ ] Endpoints: `POST /auth/register` (gated by D3: invite code or admin-created), `POST
+  /auth/token` (form-encoded, FastAPI's `OAuth2PasswordRequestForm`, so Swagger UI's Authorize
+  button works; returns a random opaque token), `POST /auth/logout` (revokes the session),
+  `GET /me`. Store only a hash of each token in a `sessions` table (user, created, expires,
+  last used, revoked). Issue a new token on every login; expire idle and old sessions. Login
+  throttling per username and per client address. No CSRF handling is needed while auth is
+  header-only.
+- [ ] Swagger UI: declare `OAuth2PasswordBearer(tokenUrl="auth/token")` as the auth
+  dependency so protected routes show a padlock and the Authorize button logs in. Add
+  `python-multipart` (the form login needs it, and so does the CSV upload). Make `/docs`,
+  `/redoc` and `/openapi.json` configurable so they can be turned off outside development;
+  `persistAuthorization` only in development.
 - [ ] A `current_user` dependency on every `/library/*` and `/ask` route. `/health` stays
   public.
 - [ ] **Upload import.** `POST /library/import` takes a multipart file. Enforce a size cap
@@ -295,8 +307,8 @@ migration are written once.
 
 ### Phase 6: Frontend (out of scope here)
 
-Notes for whoever builds it: the OpenAPI schema is the contract; decide cookie vs token
-(D3); CORS (phase 4); expect `/ask` latency of many seconds and design for a pending state.
+Notes for whoever builds it: the OpenAPI schema is the contract; auth is bearer-token
+(D3; add cookie transport if a same-origin UI wants HttpOnly cookies); CORS (phase 4); expect `/ask` latency of many seconds and design for a pending state.
 
 ---
 
@@ -307,7 +319,8 @@ Notes for whoever builds it: the OpenAPI schema is the contract; decide cookie v
 - [ ] Auth required on every route except an explicit public allowlist, enforced by a test.
 - [ ] Upload limits: size, row count, field size, encoding; no server paths in errors.
 - [ ] Rate limits and quotas on login and on `/ask`.
-- [ ] Passwords: argon2, throttled login, session rotation, CSRF if cookies.
+- [ ] Passwords: argon2, throttled login, hashed and revocable session tokens; CSRF
+  protection only if cookie transport is added later.
 - [ ] CORS allowlist; secrets from the environment only; no secrets in the image.
 - [ ] Logs contain no question text, titles or other library content.
 - [ ] Prompt injection: imported titles and blurbs reach the writer prompt. With correct
