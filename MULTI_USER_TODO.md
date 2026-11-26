@@ -188,9 +188,9 @@ cannot create `multi-user/...` branches while a branch called `multi-user` exist
 PR before starting one that depends on it. Every step keeps the whole suite green. The
 checklist after this list is grouped by step.
 
-1. [ ] `mu/05-1-schema-as-code`: dependencies; the tables as `Table` objects; a schema parity
+1. [x] `mu/05-1-schema-as-code`: dependencies; the tables as `Table` objects; a schema parity
    test against the hand-written schema.
-2. [ ] `mu/05-2-engine`: `Settings.database_url`; engine factory with D8's pool of one and the
+2. [x] `mu/05-2-engine`: `Settings.database_url`; engine factory with D8's pool of one and the
    connect hook; tests. Independent of step 1.
 3. [ ] `mu/05-3-store-on-core`: `SqlLibraryStore(engine)` for the write path, hydration and
    schema init (including the legacy rebuild); queries still run as SQL text;
@@ -205,13 +205,13 @@ checklist after this list is grouped by step.
 Order: steps 1 and 2 in parallel (both add the same dependency lines, so they merge
 cleanly), then 3, then 4 and 5 (independent of each other), then 6.
 
-- [ ] Add dependencies: `sqlalchemy>=2` and `alembic`. The Postgres driver (`psycopg`) waits
+- [x] Add dependencies: `sqlalchemy>=2` and `alembic`. The Postgres driver (`psycopg`) waits
   for phase 5, but write everything dialect-aware now.
-- [ ] **Schema as code.** Define `books`, `book_people`, `book_series`, `book_tags` once as
+- [x] **Schema as code.** Define `books`, `book_people`, `book_series`, `book_tags` once as
   SQLAlchemy `Table` objects on a shared `MetaData` (new module, for example
   `library/tables.py`): same columns, the `role` CHECK, `ON DELETE CASCADE` foreign keys and
   the indexes from the current schema. `data` is plain `Text`.
-- [ ] **Engine in one place (D8).** `Settings.database_url` (default
+- [x] **Engine in one place (D8).** `Settings.database_url` (default
   `sqlite:///data/l-space.db`; keep `db_path` working for existing `.env` files and compose,
   then deprecate). SQLite uses a pool of one (`pool_size=1, max_overflow=0`, with a sensible
   `pool_timeout`), so access is serialized. Connection scope is one store call or one
