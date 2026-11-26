@@ -108,10 +108,12 @@ Mark each as decided and record the outcome.
   removes CSRF handling. Cookie transport on top of the same `sessions` table is deferred
   until a same-origin web UI wants HttpOnly cookies. Not chosen: JWT (hard to revoke), OAuth /
   SSO (external accounts, conflicts with self-hosted / offline use).
-- [ ] **D4. `/ask` execution model.** Synchronous behind a bounded queue (429 when full), a
-  job + poll API, or streaming?
-  *Recommendation:* synchronous with the gate first (phase 3), jobs only if the latency
-  hurts.
+- [x] **D4. `/ask` execution model.** *Decided:* synchronous `POST /ask` behind a gate with a
+  small bounded queue (429 with `Retry-After` when full). Not building the job + poll API now:
+  inference on real hardware should be a fraction of today's CPU time, so the wait should be
+  short, and building B first would be premature optimisation. Revisit with data (queue wait,
+  429 rate, total latency; see phase 3). Streaming is not planned: the grounding check
+  validates the finished draft, so token streaming would show unverified text.
 - [ ] **D5. Public identifiers.** Do not expose integer row ids. Address books by `source_id`
   within the user's library (or a UUID).
 - [ ] **D6. `Book.raw`.** Keep, compress, or drop? (Affects per-user storage and every
@@ -141,7 +143,7 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 0: Preparation
 
-- [ ] Decide D4-D8 above and record them (D1-D3 and D9 are decided).
+- [ ] Decide D5-D8 above and record them (D1-D4 and D9 are decided).
 - [ ] Test scaffolding: a fixture that creates two users, each with a distinct library.
 - [ ] README positioning note (see section 1), drafted on this branch only.
 
@@ -257,8 +259,13 @@ migration are written once.
 ### Phase 3: Gate the model
 
 - [ ] **`LlmGate`.** A semaphore sized from the model server's real parallelism (default 1)
-  around `provider.generate`, a bounded wait queue, and a maximum wait. Overflow returns 429 or
-  503 with `Retry-After`.
+  around `provider.generate`, a small bounded wait queue (2-3 deep), and a maximum wait.
+  Overflow returns 429 with `Retry-After`. At most one in-flight `/ask` per user, so one user
+  cannot fill the queue. A cache hit is answered before the gate and never queues.
+- [ ] **One entry point.** The route calls a single function (for example
+  `ask_service.run(user, question)`) that does cache lookup, gate, pipeline and cache store.
+  A job worker could later call the same function, so the job API (below) would not mean
+  rewriting the pipeline.
 - [ ] Stop tying up threadpool workers: async endpoint with `httpx2.AsyncClient`, or an
   explicit worker pool. Replace the single 300 s timeout with separate connect and read
   timeouts, and warm the model at startup so the long timeout is not needed for normal
@@ -269,11 +276,15 @@ migration are written once.
   router model)`. `library_version` is bumped on import. Plans are deterministic at
   temperature 0, so caching is sound; do not cache router errors or fallback answers without
   deciding that deliberately.
-- [ ] Optional (D4): `POST /ask` returns 202 with a job id, `GET /ask/{id}` polls (or SSE);
-  jobs table; cancel when the client disconnects.
+- Deferred (D4): `POST /ask` returns 202 with a job id and `GET /ask/{id}` polls; jobs table;
+  cancellation; restart recovery (jobs running at a restart are marked failed). Build only if
+  the measurements below show a real problem. Pick the thresholds when there is data, for
+  example a p95 queue wait or a 429 rate that users would notice.
 - [ ] Tests with a `FakeProvider` that blocks: the gate admits N and rejects the rest;
   queue-wait timeout; fairness between users; quota enforcement.
-- [ ] Observability: add `queue_wait` to `timings_ms`; log queue depth.
+- [ ] Observability: add `queue_wait` to `timings_ms`; log queue depth; count 429
+  rejections and record total request latency, so the decision about the job API is made from
+  data.
 
 ### Phase 4: Application lifecycle and API hygiene
 
