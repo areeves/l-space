@@ -114,8 +114,16 @@ Mark each as decided and record the outcome.
   short, and building B first would be premature optimisation. Revisit with data (queue wait,
   429 rate, total latency; see phase 3). Streaming is not planned: the grounding check
   validates the finished draft, so token streaming would show unverified text.
-- [ ] **D5. Public identifiers.** Do not expose integer row ids. Address books by `source_id`
-  within the user's library (or a UUID).
+- [x] **D5. Public identifiers.** *Decided (contingent on D7 choosing upsert):* each book
+  gets an opaque random `public_id`, generated when the row is first inserted, unique per user.
+  Routes address books by `(user_id, public_id)`; another user's id returns 404, the same as
+  an unknown id. The internal integer `id` is never exposed. `source_id` (the ASIN) is shown
+  as an ordinary field in the response body, not used in URLs: it is a vendor identifier, so
+  building URLs on it would assume every library comes from Audible, and it is user-supplied
+  text. A `source` field can sit beside it if other import sources are ever added. Responses
+  use a dedicated `BookOut` schema, not the domain `Book`. The id is only stable across
+  re-imports if import updates existing rows (D7); with replace-all it would change on every
+  import.
 - [ ] **D6. `Book.raw`.** Keep, compress, or drop? (Affects per-user storage and every
   `data` blob.)
 - [ ] **D7. Import semantics.** Replace-all (today), or upsert + delete-missing so ids stay
@@ -143,7 +151,8 @@ Each phase is meant to be one or a few reviewable PRs against `multi-user`.
 
 ### Phase 0: Preparation
 
-- [ ] Decide D5-D8 above and record them (D1-D4 and D9 are decided).
+- [ ] Decide D6-D8 above and record them (D1-D5 and D9 are decided; D5 depends on D7
+  choosing upsert).
 - [ ] Test scaffolding: a fixture that creates two users, each with a distinct library.
 - [ ] README positioning note (see section 1), drafted on this branch only.
 
@@ -198,7 +207,8 @@ migration are written once.
 
 - [ ] **Schema.** `users` table (`id`, unique casefolded `username`, `password_hash`,
   `created_at`, `is_admin`, `disabled`). `books.user_id NOT NULL REFERENCES users(id) ON
-  DELETE CASCADE`. Replace `UNIQUE(source_id)` with `UNIQUE(user_id, source_id)`. Lead the
+  DELETE CASCADE`. Replace `UNIQUE(source_id)` with `UNIQUE(user_id, source_id)`, and add `books.public_id`
+  (random, generated on first insert, `UNIQUE(user_id, public_id)`; see D5). Lead the
   indexes with `user_id`: `(user_id, title)` can also serve `ORDER BY title` without the temp
   sort, `(user_id, duration_minutes)`, `(user_id, my_rating)`. Child tables keep `book_id` and
   inherit ownership.
@@ -219,6 +229,9 @@ migration are written once.
   `finished = 0`. Keep `series_gaps` in Python (set logic over positions and omnibus ranges)
   but read only the series rows it needs. Preserve existing semantics: `series_gaps` does not
   exclude non-audiobook formats.
+- [ ] **API identifiers (D5).** A `BookOut` response schema: no integer `id`, no `raw`;
+  `public_id` and `source_id` as plain fields. Book routes take `public_id` and go through the
+  scoped store; another user's `public_id` returns 404.
 - [ ] **Isolation tests** (the most important tests in the project): two users with the same
   ASIN; one user's import does not touch the other's books or child rows; every route returns
   only the caller's data; deleting a user cascades to books and child rows; no scoped method
