@@ -9,12 +9,19 @@ including login and ``/health``.
 Every new SQLite connection turns foreign keys on (cascades depend on it) and sets a busy
 timeout, because the CLI and ``migrate`` are separate processes on the same file. WAL and
 ``BEGIN IMMEDIATE`` are deliberately left out until there is real concurrency.
+
+Transactions are explicit: the engine emits ``BEGIN`` itself when SQLAlchemy begins one. The
+driver's default only starts a transaction before INSERT/UPDATE/DELETE, so DDL would run outside
+any transaction and a failed schema rebuild could not be rolled back.
 """
 
+from functools import cache
 from pathlib import Path
 
 from sqlalchemy import URL, Engine, create_engine, event, make_url
 from sqlalchemy.pool import QueuePool, StaticPool
+
+from l_space.core.settings import Settings
 
 BUSY_TIMEOUT_MS = 5000
 DEFAULT_POOL_TIMEOUT = 30.0
@@ -57,9 +64,29 @@ def _create_sqlite_engine(url: URL, pool_timeout: float, busy_timeout_ms: int) -
 
     @event.listens_for(engine, "connect")
     def configure(dbapi_connection, _record) -> None:
+        # Take transaction control away from the driver (SQLAlchemy's documented recipe for
+        # pysqlite: "Serializable isolation / Savepoints / Transactional DDL").
+        dbapi_connection.isolation_level = None
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys = ON")
         cursor.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
         cursor.close()
 
+    @event.listens_for(engine, "begin")
+    def begin(conn) -> None:
+        conn.exec_driver_sql("BEGIN")
+
     return engine
+
+
+@cache
+def _shared_engine(url: URL, pool_timeout: float) -> Engine:
+    return create_db_engine(url, pool_timeout=pool_timeout)
+
+
+def get_engine(settings: Settings) -> Engine:
+    """The process-wide engine for these settings: one engine, so one pool, per database URL.
+
+    SQLite's pool of one only serializes access if everyone shares it (decision D8).
+    """
+    return _shared_engine(settings.sqlalchemy_url(), settings.db_pool_timeout)
