@@ -1,4 +1,4 @@
-.PHONY: install test lint up down pull-model demo eval eval-validate
+.PHONY: install test lint migrate migration up down pull-model demo eval eval-validate
 
 install:
 	pip install -e ".[dev]"
@@ -8,6 +8,14 @@ test:
 
 lint:
 	ruff check .
+
+# Create or upgrade the database schema (the app and CLI also do this on start)
+migrate:
+	l-space migrate
+
+# Write a new migration from the changes in library/tables.py: make migration m="add users"
+migration:
+	alembic revision --autogenerate -m "$(m)"
 
 up:
 	docker compose up --build

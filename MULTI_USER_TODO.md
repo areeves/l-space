@@ -202,9 +202,15 @@ checklist after this list is grouped by step.
    dialect-aware `contains()` (`instr` on SQLite, `strpos` on Postgres, never LIKE);
    `title_order()` (`COLLATE "C"` on Postgres); the store's queries are built with `select()`;
    compile tests for both dialects (Postgres is compiled, not yet run).
-5. [ ] `mu/05-5-alembic`: Alembic baseline `0001`; `l-space migrate`; upgrade-to-head on
-   startup behind a setting; remove the `user_version` logic; compose and Dockerfile updates.
-6. [ ] `mu/05-6-cleanup`: query-plan check, parametrized store fixture, docs, drop the alias.
+5. [x] `mu/05-5-alembic`: Alembic baseline `0001` (hand-written, inside the package so it
+   ships in the wheel); `l-space migrate`; `Settings.auto_migrate` (default on) runs it at app
+   and CLI start, and when off the app refuses to start on an out-of-date database; the whole
+   migration is one transaction; `user_version` logic and `ensure_schema` removed; the store no
+   longer touches the schema. **Deviation:** a pre-Alembic database (v2 or older) is not
+   stamped but adopted by rebuilding from `data` into the baseline (ids and blobs unchanged),
+   because the old hand-written schema has unnamed constraints that SQLite batch migrations
+   cannot alter later. The `SqliteLibraryStore` alias is gone (tests use `tests/stores.py`).
+6. [ ] `mu/05-6-cleanup`: query-plan check, parametrized store fixture, docs.
 
 Order: steps 1 and 2 in parallel (both add the same dependency lines, so they merge
 cleanly), then 3, then 4 and 5 (independent of each other), then 6.
@@ -233,16 +239,17 @@ cleanly), then 3, then 4 and 5 (independent of each other), then 6.
   and a needle normalised with `str.casefold().strip()`.
 - [ ] **Ordering helper.** One `title_order()` used everywhere `ORDER BY title` appears, so
   Postgres can apply `COLLATE "C"` later without touching callers. On SQLite it stays binary.
-- [ ] **Alembic.** `alembic.ini` and `migrations/` reading the URL from `Settings`;
+- [x] **Alembic.** `alembic.ini` and `migrations/` reading the URL from `Settings`;
   `render_as_batch=True` for SQLite. Baseline revision `0001` is the current v2 schema.
-- [ ] **`l-space migrate`** (upgrade to head). Detect existing databases: a v2 database
+- [x] **`l-space migrate`** (upgrade to head). Detect existing databases: a v2 database
   (`PRAGMA user_version = 2`, no `alembic_version`) is stamped at `0001`; a pre-columns
   database (`user_version` 0) first goes through the existing rebuild-from-`data` upgrade,
   kept as a one-time step. The app no longer creates or rebuilds the schema in `__init__`.
-- [ ] Test fixtures create the schema with `metadata.create_all` (fast), plus one test that
+  *(Done differently: every pre-Alembic database is rebuilt into the baseline; see step 5.)*
+- [x] Test fixtures create the schema with `metadata.create_all` (fast), plus one test that
   Alembic's head matches the metadata (no drift) and one that exercises the real migration
   path on a v2 file database and on a legacy database.
-- [ ] Adapt `tests/test_store_schema.py`: the derived-columns invariant and the cascade and
+- [x] Adapt `tests/test_store_schema.py`: the derived-columns invariant and the cascade and
   re-import tests stay; the legacy-rebuild and atomic-rebuild tests become migrate tests.
 - [ ] Parametrize the store fixture over database back ends (SQLite only for now; Postgres
   is added in phase 5).
@@ -250,7 +257,9 @@ cleanly), then 3, then 4 and 5 (independent of each other), then 6.
   clean; `EXPLAIN QUERY PLAN` on SQLite still uses the same indexes for the same queries; no
   API behaviour change.
 - Out of scope: async engine (decide in phase 3), the Postgres implementation, tenancy.
-- Risks: SQLite `:memory:` and connection pooling quirks; Alembic autogenerate quirks on
+- Risks: the adoption step writes with the current `insert_books`, so once a revision changes
+  `books` it must write the baseline shape itself or be retired (noted in `migrate.py`).
+  SQLite `:memory:` and connection pooling quirks; Alembic autogenerate quirks on
   SQLite; keeping the substring helper's behaviour identical to the pure-Python oracle.
 
 ### Phase 1: Tenancy in the data layer (the core change)

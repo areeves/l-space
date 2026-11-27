@@ -5,6 +5,9 @@ services:
       - "8000:8000"
     environment:
       L_SPACE_DB_PATH: /app/data/l-space.db
+      # The app brings the schema up to date on start. Set to "false" to run `l-space migrate`
+      # as a separate deploy step instead.
+      L_SPACE_AUTO_MIGRATE: ${L_SPACE_AUTO_MIGRATE:-true}
       L_SPACE_OLLAMA_URL: http://ollama:11434
       L_SPACE_OLLAMA_MODEL: ${L_SPACE_OLLAMA_MODEL:-llama3.2}
       L_SPACE_OLLAMA_ROUTER_MODEL: ${L_SPACE_OLLAMA_ROUTER_MODEL:-}

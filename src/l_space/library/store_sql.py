@@ -3,9 +3,8 @@ answered here, with plain code, never by a language model.
 
 ``books.data`` (the full Book as JSON) is the source of truth. The other columns and the child
 tables (defined in ``tables.py``) are a derived projection of it, built by ``index_rows`` and
-nothing else, so they cannot drift from the blob. Changing that projection means bumping
-``SCHEMA_VERSION``: on open, a database at another version is rebuilt from ``data`` (no re-import
-of the CSV needed). Phase 0.5 step 5 replaces this version check with Alembic.
+nothing else, so they cannot drift from the blob. The store does not create or change the schema;
+``migrate.py`` does.
 
 Connection scope is one store call or one transaction, never longer (decision D8): the engine's
 SQLite pool holds a single connection, so a call that kept it would block every other request.
@@ -35,8 +34,6 @@ from l_space.library import tables
 from l_space.library.filters import BookFilter
 from l_space.library.models import Book
 from l_space.library.store import LibraryStore
-
-SCHEMA_VERSION = 2
 
 # Derived scalar columns of ``books``, in the order ``IndexRows.values`` supplies them.
 INDEX_COLUMNS = (
@@ -218,34 +215,10 @@ def insert_books(conn: Connection, rows: Iterable[tuple[int | None, Book]]) -> N
             )
 
 
-def ensure_schema(engine: Engine) -> None:
-    """Create the schema, or rebuild the derived columns from ``data`` if it is out of date."""
-    # One transaction: the engine emits BEGIN itself (see engine.py), so the DDL below is part
-    # of it and an interrupted rebuild leaves the old database intact.
-    with engine.begin() as conn:
-        version = conn.exec_driver_sql("PRAGMA user_version").scalar()
-        if version == SCHEMA_VERSION:
-            return
-        has_books = conn.exec_driver_sql(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'books'"
-        ).first()
-        old = (
-            [(id_, _to_book(id_, data)) for id_, data in conn.exec_driver_sql(
-                "SELECT id, data FROM books"
-            )]
-            if has_books
-            else []
-        )
-        tables.metadata.drop_all(conn)
-        tables.metadata.create_all(conn)
-        insert_books(conn, old)
-        conn.exec_driver_sql(f"PRAGMA user_version = {SCHEMA_VERSION}")
-
-
 class SqlLibraryStore(LibraryStore):
     def __init__(self, engine: Engine):
+        """The tables must already exist: ``migrate(engine)`` creates and upgrades them."""
         self.engine = engine
-        ensure_schema(engine)
 
     def replace_all(self, books: Iterable[Book]) -> int:
         """Re-import is idempotent: the library is replaced, not appended to."""

@@ -11,9 +11,10 @@ from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import engine as engine_module
 from l_space.library.engine import get_engine
 from l_space.library.filters import BookFilter
+from l_space.library.migrate import migrate
 from l_space.library.store import LibraryStore
 from l_space.library.store_sql import SqlLibraryStore
-from l_space.library.store_sqlite import SqliteLibraryStore
+from stores import new_store
 
 SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 BOOKS = [*load_ale_csv(SAMPLE), *EXTRA]
@@ -28,7 +29,7 @@ def fresh_engine_cache():
 
 def test_the_store_holds_no_connection_between_calls(tmp_path):
     # With a pool of one, a call that kept its connection would block every other request.
-    store = SqliteLibraryStore(tmp_path / "t.db")
+    store = new_store(tmp_path / "t.db")
     pool = store.engine.pool
     calls = [
         lambda: store.replace_all(BOOKS),
@@ -43,7 +44,7 @@ def test_the_store_holds_no_connection_between_calls(tmp_path):
 
 
 def test_concurrent_store_calls_are_serialized_not_broken(tmp_path):
-    store = SqliteLibraryStore(tmp_path / "t.db")
+    store = new_store(tmp_path / "t.db")
     store.replace_all(BOOKS)
     errors = []
 
@@ -80,6 +81,7 @@ def test_get_engine_shares_one_engine_per_database_url(tmp_path):
 
 def test_from_settings_builds_a_sql_store_on_the_shared_engine(tmp_path):
     settings = Settings(_env_file=None, db_path=tmp_path / "t.db")
+    migrate(get_engine(settings))
 
     first = LibraryStore.from_settings(settings)
     assert isinstance(first, SqlLibraryStore)

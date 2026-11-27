@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # Seconds a request may wait for the database connection. SQLite runs behind a pool of one
     # (MULTI_USER_TODO.md, D8), so this bounds how long one slow call can stall the others.
     db_pool_timeout: float = 30.0
+    # Bring the database schema up to date when the app or CLI starts. Turn off where migrations
+    # are run as a separate deploy step (`l-space migrate`); the app then refuses to start on
+    # an out-of-date database instead of failing on the first query.
+    auto_migrate: bool = True
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
     # Optional larger model for routing only. Routing is a short, accuracy-critical call, while
