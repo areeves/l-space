@@ -210,7 +210,9 @@ checklist after this list is grouped by step.
    stamped but adopted by rebuilding from `data` into the baseline (ids and blobs unchanged),
    because the old hand-written schema has unnamed constraints that SQLite batch migrations
    cannot alter later. The `SqliteLibraryStore` alias is gone (tests use `tests/stores.py`).
-6. [ ] `mu/05-6-cleanup`: query-plan check, parametrized store fixture, docs.
+6. [x] `mu/05-6-cleanup`: query-plan test (filters keep using their indexes), a store fixture
+   parametrized over back ends (SQLite memory and file; Postgres joins in phase 5) used by the
+   differential filter and plan tests, README section on the database and migrations.
 
 Order: steps 1 and 2 in parallel (both add the same dependency lines, so they merge
 cleanly), then 3, then 4 and 5 (independent of each other), then 6.
@@ -251,9 +253,9 @@ cleanly), then 3, then 4 and 5 (independent of each other), then 6.
   path on a v2 file database and on a legacy database.
 - [x] Adapt `tests/test_store_schema.py`: the derived-columns invariant and the cascade and
   re-import tests stay; the legacy-rebuild and atomic-rebuild tests become migrate tests.
-- [ ] Parametrize the store fixture over database back ends (SQLite only for now; Postgres
+- [x] Parametrize the store fixture over database back ends (SQLite only for now; Postgres
   is added in phase 5).
-- [ ] **Acceptance:** the existing suite passes with only import and fixture changes; ruff is
+- [x] **Acceptance:** the existing suite passes with only import and fixture changes; ruff is
   clean; `EXPLAIN QUERY PLAN` on SQLite still uses the same indexes for the same queries; no
   API behaviour change.
 - Out of scope: async engine (decide in phase 3), the Postgres implementation, tenancy.
