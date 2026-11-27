@@ -9,7 +9,7 @@ A local-first audiobook library explorer and recommendation assistant. Use AI wi
 ## Status
 
 Working today: import of the Audible Library Extractor (ALE) CSV export, normalization,
-SQLite storage, exact library queries, a FastAPI service, and **natural-language questions**
+SQL storage (SQLite today), exact library queries, a FastAPI service, and **natural-language questions**
 answered by a local Ollama model (phase 2, below). Recommendations are next.
 
 ## Design principles
@@ -17,7 +17,7 @@ answered by a local Ollama model (phase 2, below). Recommendations are next.
 - **Local first, free only.** Runs on your machine; the language model is served locally by
   [Ollama](https://ollama.com). No paid services or API keys.
 - **Don't make an LLM do exact database work.** Counts, filters and series status are plain
-  code over SQLite (`library/queries.py`). The model is reserved for fuzzy natural-language
+  code over SQL (`library/store_sql.py`, with `library/queries.py` as the reference). The model is reserved for fuzzy natural-language
   interpretation and for explaining results.
 - **Answers must be grounded.** The model's wording is checked against the rows that were
   actually returned; if it mentions a title, name or number that isn't in them, it is
@@ -62,6 +62,23 @@ Things the importer deals with, all covered by tests: lengths like `16h 54m `, p
 suffixes in credits (`Jane Doe - translator`), podcasts mixed in with books, and rows with no
 store metadata. Ratings in the export are mostly Audible's community average; `My Rating` is
 usually sparse, so recommendations can't lean on it alone.
+
+### The database
+
+Storage is SQLAlchemy Core over SQLite (`data/l-space.db` by default; Postgres support is
+planned). The schema lives in `library/tables.py`, and Alembic migrations bring a database to
+it. The app and the CLI migrate on start, so you rarely need to think about it. To do it
+yourself, or to change the schema:
+
+```bash
+l-space migrate                          # create or upgrade the database
+make migration m="describe the change"   # write a migration from edits to library/tables.py
+```
+
+Settings (environment variables or `.env`): `L_SPACE_DB_PATH` (SQLite file),
+`L_SPACE_DATABASE_URL` (a full SQLAlchemy URL, wins over the path), `L_SPACE_DB_POOL_TIMEOUT`,
+and `L_SPACE_AUTO_MIGRATE` (default `true`; set `false` to run `l-space migrate` as a separate
+deploy step, in which case the app refuses to start on an out-of-date database).
 
 ## Asking questions
 
@@ -134,7 +151,8 @@ src/l_space/
   ask/         question answering: plan schema, router, executor, grounding check
   core/        settings
   ingestion/   ALE CSV loading and normalization
-  library/     models, SQLite store, deterministic queries
+  library/     models, SQL store (SQLAlchemy Core), schema, migrations runner, queries
+  migrations/  Alembic revisions for the database schema
   models/      the only module that talks to a language model
 tests/         unit tests; the model is replaced by a scripted fake
 evals/         fixed questions and scoring, kept outside the app code
