@@ -220,6 +220,18 @@ class SqlLibraryStore(LibraryStore):
         """The tables must already exist: ``migrate(engine)`` creates and upgrades them."""
         self.engine = engine
 
+    @classmethod
+    def in_memory(cls, books: Iterable[Book] = ()) -> "SqlLibraryStore":
+        """A throwaway migrated database holding ``books`` (for scripts such as the evals)."""
+        from l_space.library.engine import create_db_engine
+        from l_space.library.migrate import migrate
+
+        engine = create_db_engine("sqlite://")
+        migrate(engine)
+        store = cls(engine)
+        store.replace_all(books)
+        return store
+
     def replace_all(self, books: Iterable[Book]) -> int:
         """Re-import is idempotent: the library is replaced, not appended to."""
         unique = {b.source_id: b for b in books}

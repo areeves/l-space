@@ -9,7 +9,6 @@ import httpx2
 from l_space.ask.answer import answer_question
 from l_space.core.settings import get_settings
 from l_space.ingestion.loaders import load_ale_csv
-from l_space.library import queries
 from l_space.library.engine import get_engine
 from l_space.library.migrate import migrate, prepare_database
 from l_space.library.store import LibraryStore
@@ -42,13 +41,12 @@ def main() -> None:
     if args.command == "import":
         print(f"Imported {store.replace_all(load_ale_csv(args.csv))} books")
     elif args.command == "ask":
-        books = store.all_books()
-        if not books:
+        if store.count_books() == 0:
             sys.exit("The library is empty. Run: l-space import <csv>")
         try:
             writer = from_settings(settings)
             answer = answer_question(
-                args.question, books, writer, router_from_settings(settings, writer)
+                args.question, store, writer, router_from_settings(settings, writer)
             )
         except httpx2.HTTPError as exc:
             sys.exit(f"Could not reach the language model at {settings.ollama_url}: {exc}")
@@ -65,8 +63,8 @@ def main() -> None:
             if answer.router_error:
                 print(f"router error: {answer.router_error}")
     elif args.command == "series-gaps":
-        for row in queries.series_gaps(store.all_books()):
+        for row in store.series_gaps():
             print(f"{row['series']}: missing book(s) {', '.join(map(str, row['missing']))}")
     elif args.command == "narrators":
-        for name, count in queries.narrator_counts(store.all_books()):
+        for name, count in store.narrator_counts():
             print(f"{count:3d}  {name}")

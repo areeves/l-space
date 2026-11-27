@@ -25,16 +25,16 @@ class OracleProvider(FakeProvider):
         return "Done."
 
 
-def test_dataset_is_valid_against_the_sample_library(books):
+def test_dataset_is_valid_against_the_sample_library(library):
     entries = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)
-    assert eval_run.validate_dataset(entries, books) == []
+    assert eval_run.validate_dataset(entries, library) == []
     kinds = {e["expect"]["op"] == "unsupported" for e in entries}
     assert kinds == {True, False}, "dataset needs both answerable and unanswerable questions"
 
 
-def test_validate_catches_a_wrong_expected_total(books):
+def test_validate_catches_a_wrong_expected_total(library):
     entries = [{"id": "x", "question": "q", "expect": {"op": "count_books", "author": "Maren Oakley"}, "expect_total": 99}]
-    assert "expect_total" in eval_run.validate_dataset(entries, books)[0]
+    assert "expect_total" in eval_run.validate_dataset(entries, library)[0]
 
 
 def test_plan_matching_is_strict_about_extra_filters():
@@ -45,16 +45,16 @@ def test_plan_matching_is_strict_about_extra_filters():
     assert eval_run.plan_matches({"op": "unsupported"}, QueryPlan(op="unsupported", reason="x"))
 
 
-def test_result_match_forgives_equivalent_plans(books):
+def test_result_match_forgives_equivalent_plans(library):
     entry = {"expect": {"op": "list_books", "author": "Ilsa Verrow"}, "expect_total": 3}
-    other = QueryPlan(op="list_books", author="Verrow")  # different filter text, same books
-    assert eval_run.result_matches(entry, other, books)
-    assert not eval_run.result_matches(entry, QueryPlan(op="list_books", author="Oakley"), books)
+    other = QueryPlan(op="list_books", author="Verrow")  # different filter text, same library
+    assert eval_run.result_matches(entry, other, library)
+    assert not eval_run.result_matches(entry, QueryPlan(op="list_books", author="Oakley"), library)
 
 
-def test_oracle_run_scores_perfectly_on_routing(books):
+def test_oracle_run_scores_perfectly_on_routing(library):
     entries = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)
-    records = eval_run.evaluate(entries, books, OracleProvider(entries))
+    records = eval_run.evaluate(entries, library, OracleProvider(entries))
     summary = eval_run.summarize(records)
     assert summary["plan_match"] == 1.0
     assert summary["result_match"] == 1.0
@@ -64,15 +64,15 @@ def test_oracle_run_scores_perfectly_on_routing(books):
     assert summary["fallback"] is not None
 
 
-def test_a_bad_router_is_scored_as_wrong(books):
+def test_a_bad_router_is_scored_as_wrong(library):
     entries = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)[:1]  # the series-gaps question
-    records = eval_run.evaluate(entries, books, FakeProvider('{"op": "unsupported"}'))
+    records = eval_run.evaluate(entries, library, FakeProvider('{"op": "unsupported"}'))
     summary = eval_run.summarize(records)
     assert summary["result_match"] == 0.0
     assert summary["false_abstain"] == 1.0
 
 
-def test_scoring_catches_the_wrong_plans_from_the_first_live_run(books):
+def test_scoring_catches_the_wrong_plans_from_the_first_live_run(library):
     """Plans llama3.2 actually produced on the first live run (see PR #2 discussion)."""
     entries = {e["id"]: e for e in eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)}
     live_plans = {
@@ -87,26 +87,26 @@ def test_scoring_catches_the_wrong_plans_from_the_first_live_run(books):
         if plan is None:
             continue
         entry = entries["unanswerable-wishlist" if id_ == "wishlist" else id_]
-        assert not eval_run.result_matches(entry, QueryPlan(**plan), books), id_
+        assert not eval_run.result_matches(entry, QueryPlan(**plan), library), id_
 
 
-def test_correct_plans_from_the_first_live_run_still_pass(books):
+def test_correct_plans_from_the_first_live_run_still_pass(library):
     entries = {e["id"]: e for e in eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)}
     good = QueryPlan(op="narrator_counts", min_my_rating=5.0)
-    assert eval_run.result_matches(entries["narrators-five-star"], good, books)
+    assert eval_run.result_matches(entries["narrators-five-star"], good, library)
     # A limit on a superlative is fine: only the total and the top row are compared
     longest = QueryPlan(op="list_books", sort="longest", limit=1)
-    assert eval_run.result_matches(entries["longest"], longest, books)
+    assert eval_run.result_matches(entries["longest"], longest, library)
 
 
-def test_heldout_set_is_valid_and_never_used_for_tuning(books):
+def test_heldout_set_is_valid_and_never_used_for_tuning(library):
     """The held-out questions measure generalization, so they must not leak into the prompt
     examples or the tuning set."""
     from l_space.ask.router import SYSTEM_PROMPT
 
     heldout = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS.with_name("heldout.jsonl"))
     tuning = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)
-    assert eval_run.validate_dataset(heldout, books) == []
+    assert eval_run.validate_dataset(heldout, library) == []
     questions = {e["question"] for e in heldout}
     assert not questions & {e["question"] for e in tuning}
     assert not {e["id"] for e in heldout} & {e["id"] for e in tuning}
@@ -114,11 +114,11 @@ def test_heldout_set_is_valid_and_never_used_for_tuning(books):
     assert {e["expect"]["op"] == "unsupported" for e in heldout} == {True, False}
 
 
-def test_evaluate_uses_the_router_for_plans_and_the_writer_for_text(books):
+def test_evaluate_uses_the_router_for_plans_and_the_writer_for_text(library):
     entries = eval_run.load_questions(eval_run.DEFAULT_QUESTIONS)
     router = OracleProvider(entries)
     writer = FakeProvider("{}", "Done.")
-    records = eval_run.evaluate(entries, books, writer, router)
+    records = eval_run.evaluate(entries, library, writer, router)
     assert eval_run.summarize(records)["plan_match"] == 1.0
     assert writer.plan_calls == []  # the writer model was never asked to route
 

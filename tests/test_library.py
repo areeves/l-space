@@ -75,3 +75,37 @@ def test_narrator_counts_filtered_by_my_rating():
     counts = dict(queries.narrator_counts(make_store().all_books(), min_my_rating=5))
     assert counts["Corin Ashdale"] == 2
     assert counts["Joss Harlan"] == 1  # co-narrator credit on a 5-star book
+
+
+# The store's aggregate methods are the reference for SQL overrides (step 1-2): they must
+# match the pure functions in queries.py, including the semantics the API relies on.
+def awkward_store() -> LibraryStore:
+    from awkward import EXTRA
+    from l_space.library.models import Book, SeriesEntry
+
+    podcast = Book(
+        source_id="P1", title="Pod", format="Podcast", series=[SeriesEntry(name="Pod Run", position=3)]
+    )
+    store = make_store()
+    store.replace_all([*load_ale_csv(SAMPLE), *EXTRA, podcast])
+    return store
+
+
+def test_aggregates_match_the_pure_functions():
+    from l_space.library.filters import BookFilter
+
+    store = awkward_store()
+    books = store.all_books()
+    assert store.narrator_counts() == queries.narrator_counts(books)
+    assert store.narrator_counts(BookFilter(min_my_rating=4)) == queries.narrator_counts(books, 4)
+    assert store.author_counts() == queries.author_counts(books)
+    f = BookFilter(author="verrow")
+    assert store.author_counts(f) == queries.author_counts(queries.filter_books(books, author="verrow"))
+    assert store.in_progress() == queries.in_progress(books)
+
+
+def test_series_gaps_cover_every_format():
+    store = awkward_store()
+    gaps = {g["series"]: g["missing"] for g in store.series_gaps()}
+    assert gaps["Pod Run"] == [1, 2]  # a podcast still counts, unlike the audiobook filters
+    assert store.series_gaps() == queries.series_gaps(store.all_books())

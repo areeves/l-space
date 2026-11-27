@@ -35,7 +35,8 @@ from l_space.ask.executor import execute
 from l_space.ask.plan import QueryPlan
 from l_space.core.settings import get_settings
 from l_space.ingestion.loaders import load_ale_csv
-from l_space.library.models import Book
+from l_space.library.store import LibraryStore
+from l_space.library.store_sql import SqlLibraryStore
 from l_space.models.provider import OllamaProvider
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -70,7 +71,7 @@ def _row_set(rows: list[dict]) -> list[str]:
     return sorted(json.dumps(r, sort_keys=True) for r in rows)
 
 
-def result_matches(entry: dict, plan: QueryPlan, books: list[Book]) -> bool:
+def result_matches(entry: dict, plan: QueryPlan, store: LibraryStore) -> bool:
     """Does the model's plan give the user the same answer as the expected plan?
 
     Compares what actually comes back (the total and the rows), not just how many, so a wrong
@@ -83,8 +84,8 @@ def result_matches(entry: dict, plan: QueryPlan, books: list[Book]) -> bool:
         return plan.op == "unsupported"
     if plan.op == "unsupported":
         return False
-    expected = execute(QueryPlan(**entry["expect"]), books)
-    actual = execute(plan, books)
+    expected = execute(QueryPlan(**entry["expect"]), store)
+    actual = execute(plan, store)
     if actual.total != expected.total:
         return False
     first = entry.get("expect_first_title")
@@ -93,7 +94,7 @@ def result_matches(entry: dict, plan: QueryPlan, books: list[Book]) -> bool:
     return _row_set(actual.rows) == _row_set(expected.rows)
 
 
-def validate_dataset(entries: list[dict], books: list[Book]) -> list[str]:
+def validate_dataset(entries: list[dict], store: LibraryStore) -> list[str]:
     """Check that each expected plan is valid and produces its expected total. No model needed."""
     problems = []
     ids = [e["id"] for e in entries]
@@ -109,9 +110,9 @@ def validate_dataset(entries: list[dict], books: list[Book]) -> list[str]:
             continue
         if "expect_total" not in e:
             problems.append(f"{e['id']}: answerable question without expect_total")
-        elif execute(plan, books).total != e["expect_total"]:
+        elif execute(plan, store).total != e["expect_total"]:
             problems.append(f"{e['id']}: expected plan does not produce expect_total on the sample")
-        elif "expect_first_title" in e and not result_matches(e, plan, books):
+        elif "expect_first_title" in e and not result_matches(e, plan, store):
             problems.append(f"{e['id']}: expected plan does not put expect_first_title first")
     return problems
 
@@ -123,11 +124,11 @@ def warm_up(*providers) -> None:
         provider.generate("Hello", max_tokens=1)
 
 
-def evaluate(entries: list[dict], books: list[Book], provider, router=None) -> list[dict]:
+def evaluate(entries: list[dict], store: LibraryStore, provider, router=None) -> list[dict]:
     records = []
     for e in entries:
         started = time.perf_counter()
-        answer = answer_question(e["question"], books, provider, router)
+        answer = answer_question(e["question"], store, provider, router)
         elapsed = (time.perf_counter() - started) * 1000
         unanswerable = e["expect"]["op"] == "unsupported"
         records.append(
@@ -137,7 +138,7 @@ def evaluate(entries: list[dict], books: list[Book], provider, router=None) -> l
                 "unanswerable": unanswerable,
                 "plan": answer.plan.model_dump(exclude_none=True),
                 "plan_match": plan_matches(e["expect"], answer.plan),
-                "result_match": result_matches(e, answer.plan, books),
+                "result_match": result_matches(e, answer.plan, store),
                 "abstained": answer.abstained,
                 "grounded": answer.grounded,
                 "used_fallback": answer.used_fallback,
@@ -225,14 +226,14 @@ def main() -> int:
     args = parser.parse_args()
 
     entries = load_questions(args.questions)
-    books = list(load_ale_csv(args.library))
+    store = SqlLibraryStore.in_memory(load_ale_csv(args.library))
 
-    problems = validate_dataset(entries, books)
+    problems = validate_dataset(entries, store)
     if problems:
         print("Dataset problems:\n  " + "\n  ".join(problems))
         return 1
     if args.validate:
-        print(f"{len(entries)} questions OK against {len(books)} books in {args.library.name}")
+        print(f"{len(entries)} questions OK against {len(store.all_books())} books in {args.library.name}")
         return 0
 
     settings = get_settings()
@@ -254,7 +255,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
-    records = evaluate(entries, books, provider, router)
+    records = evaluate(entries, store, provider, router)
     summary = summarize(records)
     _print_report(summary, records, model, router_model)
     if args.out:
