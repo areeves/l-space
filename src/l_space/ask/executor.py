@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from l_space.ask.plan import QueryPlan
-from l_space.library.filters import BookFilter
 from l_space.library.models import Book
 from l_space.library.store import LibraryStore
 
@@ -72,22 +71,18 @@ def _sorted(books: list[Book], sort: str) -> list[Book]:
     return sorted(books, key=lambda b: b.title.casefold())
 
 
-def _filter(plan: QueryPlan) -> BookFilter:
-    return BookFilter(author=plan.author, narrator=plan.narrator, series=plan.series, category=plan.category, min_minutes=plan.min_minutes, max_minutes=plan.max_minutes, min_my_rating=plan.min_my_rating)
-
-
 def execute(plan: QueryPlan, store: LibraryStore) -> Result:
     op = plan.op
     if op == "list_books":
-        matched = _sorted(store.filter_books(_filter(plan)), plan.sort)
+        matched = _sorted(store.filter_books(plan.to_filter()), plan.sort)
         return Result(op, len(matched), [_book_row(b) for b in matched[: plan.limit]])
 
     if op == "count_books":
-        return Result(op, store.count_books(_filter(plan)))
+        return Result(op, store.count_books(plan.to_filter()))
 
     if op in ("narrator_counts", "author_counts"):
         counts = store.narrator_counts if op == "narrator_counts" else store.author_counts
-        pairs = counts(_filter(plan))
+        pairs = counts(plan.to_filter())
         label = "narrator" if op == "narrator_counts" else "author"
         return Result(op, len(pairs), [{label: n, "books": c} for n, c in pairs[: plan.limit]])
 
@@ -102,7 +97,7 @@ def execute(plan: QueryPlan, store: LibraryStore) -> Result:
         return Result(op, len(gaps), rows)
 
     if op == "in_progress":
-        started = store.in_progress(_filter(plan))
+        started = store.in_progress(plan.to_filter())
         return Result(op, len(started), [_book_row(b) for b in started[: plan.limit]])
 
     return Result(op, 0)

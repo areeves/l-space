@@ -85,13 +85,20 @@ def series_gaps(books: list[Book]) -> list[dict]:
     like 'The Cosmere' are ignored. This reflects what is in the library, not the full
     series: it cannot know about books after the highest one you own.
     """
+    return gaps_from_entries((s.name, s.position, s.position_end) for b in books for s in b.series)
+
+
+def gaps_from_entries(entries: Iterable[tuple[str, float | None, float | None]]) -> list[dict]:
+    """``series_gaps`` over bare (series name, position, position_end) entries.
+
+    Split out so a store can feed it just the series rows instead of whole books.
+    """
     owned: dict[str, set[int]] = defaultdict(set)
-    for b in books:
-        for s in b.series:
-            if s.position is None or not s.position.is_integer():
-                continue
-            last = int(s.position_end) if s.position_end is not None else int(s.position)
-            owned[s.name].update(range(int(s.position), last + 1))
+    for name, position, position_end in entries:
+        if position is None or not position.is_integer():
+            continue
+        last = int(position_end) if position_end is not None else int(position)
+        owned[name].update(range(int(position), last + 1))
 
     result = []
     for name, numbers in owned.items():

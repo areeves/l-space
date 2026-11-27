@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from l_space.ask.plan import QueryPlan, plan_schema
+from l_space.library.filters import BookFilter
 
 
 def test_minimal_plan_has_defaults():
@@ -63,3 +64,17 @@ def test_router_prompt_covers_the_failure_modes_seen_in_live_runs():
         "NO prices, wishlists",
     ):
         assert needle in SYSTEM_PROMPT
+
+
+def test_to_filter_carries_every_filter_field():
+    # A filter added to BookFilter must exist on QueryPlan too, or the model could never ask for it.
+    assert set(BookFilter.model_fields) <= set(QueryPlan.model_fields)
+    plan = QueryPlan(
+        op="list_books", author="a", narrator="n", series="s", category="c",
+        min_minutes=1, max_minutes=2, min_my_rating=3.5, sort="longest", limit=5,
+    )
+    assert plan.to_filter() == BookFilter(
+        author="a", narrator="n", series="s", category="c",
+        min_minutes=1, max_minutes=2, min_my_rating=3.5,
+    )
+    assert QueryPlan(op="count_books", author="any").to_filter() == BookFilter()  # lenient blanks

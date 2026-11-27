@@ -30,7 +30,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.functions import FunctionElement
 
-from l_space.library import tables
+from l_space.library import queries, tables
 from l_space.library.filters import BookFilter
 from l_space.library.models import Book
 from l_space.library.store import LibraryStore
@@ -115,14 +115,17 @@ def contains(column: ColumnElement, text: str) -> ColumnElement[bool]:
     return _Position(column, _needle(text)) > 0
 
 
-def title_order(dialect_name: str) -> ColumnElement:
-    """Order by title in code-point order, which is what Python's ``sorted`` does.
+def code_point_order(column: ColumnElement, dialect_name: str) -> ColumnElement:
+    """Order by ``column`` in code-point order, which is what Python's ``sorted`` does.
 
     SQLite's default collation already is; Postgres follows the database locale unless told
     otherwise (decision D1).
     """
-    title = tables.books.c.title
-    return title.collate("C") if dialect_name == "postgresql" else title
+    return column.collate("C") if dialect_name == "postgresql" else column
+
+
+def title_order(dialect_name: str) -> ColumnElement:
+    return code_point_order(tables.books.c.title, dialect_name)
 
 
 def build_where(f: BookFilter) -> ColumnElement[bool]:
@@ -257,6 +260,46 @@ class SqlLibraryStore(LibraryStore):
             rows = conn.execute(query).all()
         # Parsed after the connection is released: CPU work never holds the pool's only slot.
         return [_to_book(id_, data) for id_, data in rows]
+
+    def narrator_counts(self, f: BookFilter | None = None) -> list[tuple[str, int]]:
+        return self._people_counts("narrator", f)
+
+    def author_counts(self, f: BookFilter | None = None) -> list[tuple[str, int]]:
+        return self._people_counts("author", f)
+
+    def _people_counts(self, role: str, f: BookFilter | None) -> list[tuple[str, int]]:
+        """Names with their number of matching books, most first, ties by name.
+
+        Counts rows, so a name listed twice on one book counts twice, as ``Counter.update``
+        does. Names are grouped exactly as written (not casefolded).
+        """
+        # An alias, so the filter's own EXISTS on book_people does not auto-correlate into it.
+        people = tables.book_people.alias("counted")
+        name = people.c.name
+        count = func.count()
+        query = (
+            select(name, count)
+            .select_from(people.join(tables.books, people.c.book_id == tables.books.c.id))
+            .where(people.c.role == role, build_where(f or BookFilter()))
+            .group_by(name)
+            .order_by(count.desc(), code_point_order(name, self.engine.dialect.name))
+        )
+        with self.engine.connect() as conn:
+            return [(n, c) for n, c in conn.execute(query)]
+
+    def in_progress(self, f: BookFilter | None = None) -> list[Book]:
+        where = and_(build_where(f or BookFilter()), tables.books.c.finished == 0)
+        return self._select_books(where)
+
+    def series_gaps(self) -> list[dict]:
+        """Reads only the series rows, not the books' JSON."""
+        series = tables.book_series
+        query = select(series.c.name, series.c.position, series.c.position_end).where(
+            series.c.position.is_not(None)
+        )
+        with self.engine.connect() as conn:
+            entries = [tuple(row) for row in conn.execute(query)]
+        return queries.gaps_from_entries(entries)
 
     def count_books(self, f: BookFilter | None = None) -> int:
         query = select(func.count()).select_from(tables.books).where(build_where(f or BookFilter()))

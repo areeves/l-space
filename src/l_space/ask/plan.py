@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
+from l_space.library.filters import BookFilter
+
 Op = Literal[
     "list_books",
     "count_books",
@@ -57,6 +59,10 @@ class QueryPlan(BaseModel):
             return min(max(int(v), 1), 50)
         except (TypeError, ValueError):
             return 20
+
+    def to_filter(self) -> BookFilter:
+        """The filter fields of this plan. Follows ``BookFilter``, so a new filter needs no edit here."""
+        return BookFilter(**{name: getattr(self, name) for name in BookFilter.model_fields})
 
 
 def plan_schema() -> dict:

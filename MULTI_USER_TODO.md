@@ -273,9 +273,13 @@ dependency returns it. Steps (branches `mu/1-N-...`, PRs with `multi-user` as ba
    `author_counts`, `in_progress`, `series_gaps`) as the Python reference; `execute` and
    `answer_question` take a store instead of a `books` list; `/ask` and the CLI check
    `count_books()`; evals and tests adapted. No behaviour change.
-2. [ ] `mu/1-2-push-down-aggregates`: SQL `GROUP BY` for narrator and author counts, `finished
-   = 0` for `in_progress`, `series_gaps` reading only series rows; differential tests and plan
-   checks.
+2. [x] `mu/1-2-push-down-aggregates`: SQL `GROUP BY` for narrator and author counts, `finished
+   = 0` for `in_progress`, `series_gaps` reading only the series rows (the gap logic is shared
+   with `queries.py` as `gaps_from_entries`); differential tests against the pure functions;
+   `QueryPlan.to_filter()` replaces the executor's field-by-field mapping (a test checks every
+   `BookFilter` field exists on the plan). **Re-check in step 5:** the counts query scans
+   `book_people` and looks up books by primary key, fine for one user but a scan of every
+   user's rows once `user_id` exists; make it drive from the user's books and add a plan test.
 3. [ ] `mu/1-3-upsert-import`: D7. `import_books()` returning an `ImportResult`; stable ids;
    `replace_all` removed; CLI and API report the counts.
 4. [ ] `mu/1-4-tenancy-schema`: Alembic `0002` (`users`, `books.user_id`, `books.public_id`,
