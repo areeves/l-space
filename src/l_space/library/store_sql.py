@@ -25,6 +25,7 @@ from sqlalchemy import (
     insert,
     or_,
     select,
+    update,
 )
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.elements import ColumnElement
@@ -33,7 +34,7 @@ from sqlalchemy.sql.functions import FunctionElement
 from l_space.library import queries, tables
 from l_space.library.filters import BookFilter
 from l_space.library.models import Book
-from l_space.library.store import LibraryStore
+from l_space.library.store import ImportResult, LibraryStore
 
 # Derived scalar columns of ``books``, in the order ``IndexRows.values`` supplies them.
 INDEX_COLUMNS = (
@@ -174,48 +175,67 @@ def _to_book(id_: int, data: str) -> Book:
     return Book.model_validate_json(data).model_copy(update={"id": id_})
 
 
+def _blob(book: Book) -> str:
+    """The book as stored in ``data``. The id lives in the column, so a rebuild reproduces it."""
+    return book.model_copy(update={"id": None}).model_dump_json()
+
+
+def _row_values(book: Book, blob: str) -> dict:
+    """Every ``books`` column except ``id``."""
+    return {
+        "source_id": book.source_id,
+        "title": book.title,
+        "data": blob,
+        **dict(zip(INDEX_COLUMNS, index_rows(book).values, strict=True)),
+    }
+
+
+def _insert_children(conn: Connection, book_id: int, ix: IndexRows) -> None:
+    if ix.people:
+        conn.execute(
+            insert(tables.book_people),
+            [
+                {"book_id": book_id, "role": role, "name": name, "name_cf": name_cf}
+                for role, name, name_cf in ix.people
+            ],
+        )
+    if ix.series:
+        conn.execute(
+            insert(tables.book_series),
+            [
+                {
+                    "book_id": book_id,
+                    "name": name,
+                    "name_cf": name_cf,
+                    "position": position,
+                    "position_end": position_end,
+                }
+                for name, name_cf, position, position_end in ix.series
+            ],
+        )
+    if ix.tags:
+        conn.execute(
+            insert(tables.book_tags),
+            [{"book_id": book_id, "tag_cf": tag_cf} for (tag_cf,) in ix.tags],
+        )
+
+
 def insert_books(conn: Connection, rows: Iterable[tuple[int | None, Book]]) -> None:
     """Write books (``id`` None = assign one) with their derived columns and child rows."""
     for id_, book in rows:
-        ix = index_rows(book)
-        # The id lives in the column, not the blob, so a rebuild reproduces `data` exactly.
-        blob = book.model_copy(update={"id": None}).model_dump_json()
-        values = {
-            "source_id": book.source_id,
-            "title": book.title,
-            "data": blob,
-            **dict(zip(INDEX_COLUMNS, ix.values, strict=True)),
-        }
+        values = _row_values(book, _blob(book))
         if id_ is not None:
             values["id"] = id_
         book_id = conn.execute(insert(tables.books).values(**values)).inserted_primary_key[0]
-        if ix.people:
-            conn.execute(
-                insert(tables.book_people),
-                [
-                    {"book_id": book_id, "role": role, "name": name, "name_cf": name_cf}
-                    for role, name, name_cf in ix.people
-                ],
-            )
-        if ix.series:
-            conn.execute(
-                insert(tables.book_series),
-                [
-                    {
-                        "book_id": book_id,
-                        "name": name,
-                        "name_cf": name_cf,
-                        "position": position,
-                        "position_end": position_end,
-                    }
-                    for name, name_cf, position, position_end in ix.series
-                ],
-            )
-        if ix.tags:
-            conn.execute(
-                insert(tables.book_tags),
-                [{"book_id": book_id, "tag_cf": tag_cf} for (tag_cf,) in ix.tags],
-            )
+        _insert_children(conn, book_id, index_rows(book))
+
+
+def update_book(conn: Connection, id_: int, book: Book, blob: str) -> None:
+    """Rewrite one book in place: same ``id``, derived columns and child rows re-derived."""
+    conn.execute(update(tables.books).where(tables.books.c.id == id_).values(**_row_values(book, blob)))
+    for child in (tables.book_people, tables.book_series, tables.book_tags):
+        conn.execute(delete(child).where(child.c.book_id == id_))
+    _insert_children(conn, id_, index_rows(book))
 
 
 class SqlLibraryStore(LibraryStore):
@@ -232,16 +252,36 @@ class SqlLibraryStore(LibraryStore):
         engine = create_db_engine("sqlite://")
         migrate(engine)
         store = cls(engine)
-        store.replace_all(books)
+        store.import_books(books)
         return store
 
-    def replace_all(self, books: Iterable[Book]) -> int:
-        """Re-import is idempotent: the library is replaced, not appended to."""
-        unique = {b.source_id: b for b in books}
+    def import_books(self, books: Iterable[Book]) -> ImportResult:
+        incoming = {b.source_id: b for b in books}  # the last duplicate wins
+        added: list[Book] = []
+        updated = unchanged = 0
         with self.engine.begin() as conn:
-            conn.execute(delete(tables.books))  # child rows go with it (ON DELETE CASCADE)
-            insert_books(conn, ((None, b) for b in unique.values()))
-        return len(unique)
+            existing = {
+                source_id: (id_, data)
+                for id_, source_id, data in conn.execute(
+                    select(tables.books.c.id, tables.books.c.source_id, tables.books.c.data)
+                )
+            }
+            for source_id, book in incoming.items():
+                if source_id not in existing:
+                    added.append(book)
+                    continue
+                id_, stored = existing[source_id]
+                blob = _blob(book)
+                if blob == stored:
+                    unchanged += 1
+                else:
+                    update_book(conn, id_, book, blob)
+                    updated += 1
+            gone = [id_ for source_id, (id_, _) in existing.items() if source_id not in incoming]
+            for start in range(0, len(gone), 500):  # stay under SQLite's variable limit
+                conn.execute(delete(tables.books).where(tables.books.c.id.in_(gone[start : start + 500])))
+            insert_books(conn, ((None, b) for b in added))  # children go with a delete (CASCADE)
+        return ImportResult(len(added), updated, unchanged, len(gone))
 
     def all_books(self) -> list[Book]:
         return self._select_books(None)

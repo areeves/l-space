@@ -13,7 +13,7 @@ from l_space.library.store_sql import build_where, title_order
 
 @pytest.fixture(scope="module")
 def store(empty_store):
-    empty_store.replace_all([*load_ale_csv(SAMPLE), *EXTRA])
+    empty_store.import_books([*load_ale_csv(SAMPLE), *EXTRA])
     return empty_store
 
 

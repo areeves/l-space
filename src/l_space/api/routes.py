@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from pathlib import Path
 
 import httpx2
@@ -43,7 +44,8 @@ def import_library(path: str, store: LibraryStore = Depends(get_store)) -> dict[
     csv_path = Path(path)
     if not csv_path.is_file():
         raise HTTPException(status_code=404, detail=f"No such file: {path}")
-    return {"imported": store.replace_all(load_ale_csv(csv_path))}
+    result = store.import_books(load_ale_csv(csv_path))
+    return {**asdict(result), "total": result.total}
 
 
 @router.get("/library/books", response_model=list[Book], response_model_exclude={"raw"})

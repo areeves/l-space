@@ -12,7 +12,7 @@ from stores import new_store
 def client_for(provider, with_books=True) -> TestClient:
     store = new_store(":memory:")
     if with_books:
-        store.replace_all(load_ale_csv(SAMPLE))
+        store.import_books(load_ale_csv(SAMPLE))
     app = create_app()
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_provider] = lambda: provider

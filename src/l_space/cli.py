@@ -18,7 +18,7 @@ from l_space.models.provider import from_settings, router_from_settings
 def main() -> None:
     parser = argparse.ArgumentParser(prog="l-space")
     sub = parser.add_subparsers(dest="command", required=True)
-    imp = sub.add_parser("import", help="Import an ALE CSV export (replaces the current library)")
+    imp = sub.add_parser("import", help="Import an ALE CSV export (adds, updates and removes books to match it)")
     imp.add_argument("csv", type=Path)
     ask = sub.add_parser("ask", help="Ask a question about your library (needs the Ollama model)")
     ask.add_argument("question")
@@ -39,7 +39,7 @@ def main() -> None:
         sys.exit(str(exc))
     store = LibraryStore.from_settings(settings)
     if args.command == "import":
-        print(f"Imported {store.replace_all(load_ale_csv(args.csv))} books")
+        print(f"Imported {store.import_books(load_ale_csv(args.csv)).summary()}")
     elif args.command == "ask":
         if store.count_books() == 0:
             sys.exit("The library is empty. Run: l-space import <csv>")

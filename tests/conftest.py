@@ -18,7 +18,7 @@ def library(books):
     from stores import new_store
 
     store = new_store()
-    store.replace_all(books)
+    store.import_books(books)
     return store
 
 

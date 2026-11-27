@@ -280,8 +280,13 @@ dependency returns it. Steps (branches `mu/1-N-...`, PRs with `multi-user` as ba
    `BookFilter` field exists on the plan). **Re-check in step 5:** the counts query scans
    `book_people` and looks up books by primary key, fine for one user but a scan of every
    user's rows once `user_id` exists; make it drive from the user's books and add a plan test.
-3. [ ] `mu/1-3-upsert-import`: D7. `import_books()` returning an `ImportResult`; stable ids;
-   `replace_all` removed; CLI and API report the counts.
+3. [x] `mu/1-3-upsert-import`: D7. `import_books()` returns an `ImportResult` (added / updated /
+   unchanged / removed); rows matched by `source_id`, changed rows rewritten in place (same `id`,
+   derived columns and child rows re-derived), identical rows not touched, missing books
+   deleted, all in one transaction; `replace_all` removed; the CLI prints the summary and
+   `POST /library/import` returns the counts (and `total`). Unchanged means the stored blob is
+   byte-identical to the new one. Known: an empty import still empties the library, as
+   replace-all did; revisit with the Phase 2 upload endpoint (a guard or a confirmation).
 4. [ ] `mu/1-4-tenancy-schema`: Alembic `0002` (`users`, `books.user_id`, `books.public_id`,
    the user-leading unique constraints and indexes); the migration creates the default owner,
    assigns every existing book to it and generates `public_id`s; adoption gets a frozen

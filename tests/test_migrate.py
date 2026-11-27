@@ -54,7 +54,7 @@ def test_a_fresh_database_is_created_at_head(engine):
 def test_migrating_is_idempotent(engine):
     migrate(engine)
     store = SqlLibraryStore(engine)
-    store.replace_all(BOOKS)
+    store.import_books(BOOKS)
     migrate(engine)
     assert len(store.all_books()) == len({b.source_id for b in BOOKS})
 

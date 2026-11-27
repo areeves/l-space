@@ -13,7 +13,7 @@ CHILD_TABLES = ("book_people", "book_series", "book_tags")
 
 def make_store(path=":memory:") -> SqlLibraryStore:
     store = new_store(path)
-    store.replace_all([*load_ale_csv(SAMPLE), *EXTRA])
+    store.import_books([*load_ale_csv(SAMPLE), *EXTRA])
     return store
 
 
@@ -68,14 +68,14 @@ def test_reimport_replaces_child_rows():
         return {t: sql(store, f"SELECT COUNT(*) FROM {t}")[0][0] for t in CHILD_TABLES}
 
     before = counts()
-    store.replace_all([*load_ale_csv(SAMPLE), *EXTRA])
+    store.import_books([*load_ale_csv(SAMPLE), *EXTRA])
     assert counts() == before  # nothing orphaned, nothing doubled
     assert assert_index_matches_blob(store) > 0
 
 
 def test_replacing_with_fewer_books_leaves_no_orphans():
     store = make_store()
-    store.replace_all(load_ale_csv(SAMPLE))
+    store.import_books(load_ale_csv(SAMPLE))
     for table in CHILD_TABLES:
         orphans = sql(
             store, f"SELECT COUNT(*) FROM {table} WHERE book_id NOT IN (SELECT id FROM books)"
