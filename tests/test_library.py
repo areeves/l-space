@@ -3,13 +3,13 @@ from pathlib import Path
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import queries
 from l_space.library.store import LibraryStore
-from l_space.library.store_sqlite import SqliteLibraryStore
+from stores import new_store
 
 SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 
 
 def make_store() -> LibraryStore:
-    store = SqliteLibraryStore(":memory:")
+    store = new_store(":memory:")
     store.replace_all(load_ale_csv(SAMPLE))
     return store
 

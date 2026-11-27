@@ -10,6 +10,8 @@ from l_space.ask.answer import answer_question
 from l_space.core.settings import get_settings
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import queries
+from l_space.library.engine import get_engine
+from l_space.library.migrate import migrate, prepare_database
 from l_space.library.store import LibraryStore
 from l_space.models.provider import from_settings, router_from_settings
 
@@ -22,11 +24,20 @@ def main() -> None:
     ask = sub.add_parser("ask", help="Ask a question about your library (needs the Ollama model)")
     ask.add_argument("question")
     ask.add_argument("--show-plan", action="store_true", help="Also print the query plan and checks")
+    sub.add_parser("migrate", help="Create or upgrade the database schema")
     sub.add_parser("series-gaps", help="Numbered series where you own later books but not earlier ones")
     sub.add_parser("narrators", help="Narrators ranked by number of audiobooks")
     args = parser.parse_args()
 
     settings = get_settings()
+    if args.command == "migrate":
+        migrate(get_engine(settings))
+        print("Database is up to date")
+        return
+    try:
+        prepare_database(settings)
+    except RuntimeError as exc:
+        sys.exit(str(exc))
     store = LibraryStore.from_settings(settings)
     if args.command == "import":
         print(f"Imported {store.replace_all(load_ale_csv(args.csv))} books")

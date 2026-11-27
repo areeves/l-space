@@ -8,7 +8,8 @@ from awkward import EXTRA
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.library.filters import BookFilter
 from l_space.library.store import LibraryStore
-from l_space.library.store_sqlite import SqliteLibraryStore
+from l_space.library.store_sql import SqlLibraryStore
+from stores import new_store
 
 SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 
@@ -48,8 +49,8 @@ FILTERS = [
 
 
 @pytest.fixture(scope="module")
-def store() -> SqliteLibraryStore:
-    s = SqliteLibraryStore(":memory:")
+def store() -> SqlLibraryStore:
+    s = new_store(":memory:")
     s.replace_all([*load_ale_csv(SAMPLE), *EXTRA])
     return s
 
