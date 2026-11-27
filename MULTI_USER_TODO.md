@@ -266,6 +266,41 @@ cleanly), then 3, then 4 and 5 (independent of each other), then 6.
 
 ### Phase 1: Tenancy in the data layer (the core change)
 
+Until Phase 2 adds login, the app runs as one default owner; a `current_user` stand-in
+dependency returns it. Steps (branches `mu/1-N-...`, PRs with `multi-user` as base):
+
+1. [x] `mu/1-1-pipeline-takes-store`: aggregate methods on the base store (`narrator_counts`,
+   `author_counts`, `in_progress`, `series_gaps`) as the Python reference; `execute` and
+   `answer_question` take a store instead of a `books` list; `/ask` and the CLI check
+   `count_books()`; evals and tests adapted. No behaviour change.
+2. [ ] `mu/1-2-push-down-aggregates`: SQL `GROUP BY` for narrator and author counts, `finished
+   = 0` for `in_progress`, `series_gaps` reading only series rows; differential tests and plan
+   checks.
+3. [ ] `mu/1-3-upsert-import`: D7. `import_books()` returning an `ImportResult`; stable ids;
+   `replace_all` removed; CLI and API report the counts.
+4. [ ] `mu/1-4-tenancy-schema`: Alembic `0002` (`users`, `books.user_id`, `books.public_id`,
+   the user-leading unique constraints and indexes); the migration creates the default owner,
+   assigns every existing book to it and generates `public_id`s; adoption gets a frozen
+   baseline-shaped writer (see the note in `migrate.py`). Queries unchanged (one user).
+5. [ ] `mu/1-5-scoped-store`: split `LibraryStore` (users, `for_user(user_id)`) from
+   `UserLibrary` (every book read and write, always scoped); per-user import; the two-user test
+   fixture; store-level isolation tests, including one that fails if a public book method has
+   no user scope.
+6. [ ] `mu/1-6-scoped-routes-and-bookout`: `current_user` stand-in; routes and CLI through
+   `for_user`; `BookOut`; new `GET /library/books/{public_id}`; route-level isolation tests
+   (another user's `public_id` is a 404).
+
+Decisions (Phase 1):
+
+- **Per-book route:** add `GET /library/books/{public_id}` (step 6) so D5's 404 rule is testable.
+- **Default owner:** created automatically by the migration (`owner`, no password, so nobody can
+  log in until Phase 2 provides a way to set one); a name flag on `l-space migrate` can
+  override it. *To confirm with the author: the reply read "B auto owner", where B was "require
+  the name up front" and "auto owner" was A.*
+- **Migration `0002` is one-way.** Back up the database first (section 8); no downgrade.
+- Row-level security stays in the Postgres phase; the library-version counter waits for the
+  Phase 3 answer cache, its only consumer.
+
 - [ ] **Schema.** `users` table (`id`, unique casefolded `username`, `password_hash`,
   `created_at`, `is_admin`, `disabled`). `books.user_id NOT NULL REFERENCES users(id) ON
   DELETE CASCADE`. Replace `UNIQUE(source_id)` with `UNIQUE(user_id, source_id)`, and add `books.public_id`

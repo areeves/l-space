@@ -12,6 +12,16 @@ def books():
     return list(load_ale_csv(SAMPLE))
 
 
+@pytest.fixture(scope="session")
+def library(books):
+    """A store holding the sample library (read-only: tests must not change it)."""
+    from stores import new_store
+
+    store = new_store()
+    store.replace_all(books)
+    return store
+
+
 # Store back ends the shared store tests run against. Postgres joins this list in phase 5.
 STORE_BACKENDS = ["sqlite-memory", "sqlite-file"]
 

@@ -35,3 +35,19 @@ class LibraryStore(ABC):
 
     def count_books(self, f: BookFilter | None = None) -> int:
         return len(self.filter_books(f))
+
+    def narrator_counts(self, f: BookFilter | None = None) -> list[tuple[str, int]]:
+        """Narrators of the matching audiobooks, most books first (ties by name)."""
+        return queries.narrator_counts(self.filter_books(f))
+
+    def author_counts(self, f: BookFilter | None = None) -> list[tuple[str, int]]:
+        """Authors of the matching audiobooks, most books first (ties by name)."""
+        return queries.author_counts(self.filter_books(f))
+
+    def in_progress(self, f: BookFilter | None = None) -> list[Book]:
+        """Matching audiobooks that are started but not finished, in all_books() order."""
+        return queries.in_progress(self.filter_books(f))
+
+    def series_gaps(self) -> list[dict]:
+        """Numbered series with a missing earlier book. Covers every format, not only audiobooks."""
+        return queries.series_gaps(self.all_books())
