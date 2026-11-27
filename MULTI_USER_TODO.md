@@ -295,8 +295,7 @@ Decisions (Phase 1):
 - **Per-book route:** add `GET /library/books/{public_id}` (step 6) so D5's 404 rule is testable.
 - **Default owner:** created automatically by the migration (`owner`, no password, so nobody can
   log in until Phase 2 provides a way to set one); a name flag on `l-space migrate` can
-  override it. *To confirm with the author: the reply read "B auto owner", where B was "require
-  the name up front" and "auto owner" was A.*
+  override it. Confirmed by the author.
 - **Migration `0002` is one-way.** Back up the database first (section 8); no downgrade.
 - Row-level security stays in the Postgres phase; the library-version counter waits for the
   Phase 3 answer cache, its only consumer.
