@@ -17,7 +17,8 @@ class SeriesEntry(BaseModel):
 class Book(BaseModel):
     """One library entry. ``raw`` preserves the source row exactly as imported."""
 
-    id: int | None = None
+    id: int | None = None  # the database row; internal, never shown by the API
+    public_id: str | None = None  # opaque identifier the API uses; set by the store, never stored in data
     source_id: str  # ASIN
     title: str
     full_title: str | None = None

@@ -45,15 +45,30 @@ def test_the_readers_are_found():
             "in_progress", "series_gaps"} <= set(READERS)
 
 
+# Readers that take arguments are given bob's identifiers, asked for from alice's library.
+def reader_arguments(name, bob):
+    return {"get_book": (bob.all_books()[0].public_id,)}.get(name, ())
+
+
 @pytest.mark.parametrize("name", READERS)
 def test_no_reader_returns_another_users_data(two_users, name):
-    _, alice, _bob = two_users
-    call = getattr(alice, name)
-    result = call()  # every reader works with no arguments
+    _, alice, bob = two_users
+    result = getattr(alice, name)(*reader_arguments(name, bob))
     flat = repr(result)
     for other in ("Bob", "B-ONLY", "Pod"):
         assert other not in flat, f"{name} leaked: {other}"
-    assert flat  # and it did return something about alice
+    if name != "get_book":  # looking up bob's book finds nothing; every other reader finds alice's
+        assert flat
+
+
+def test_a_public_id_only_opens_the_book_for_its_owner(two_users):
+    _, alice, bob = two_users
+    mine, theirs = alice.all_books()[0], bob.all_books()[0]
+    assert alice.get_book(mine.public_id) == mine
+    assert bob.get_book(theirs.public_id) == theirs
+    assert alice.get_book(theirs.public_id) is None
+    assert bob.get_book(mine.public_id) is None
+    assert alice.get_book("no-such-id") is None
 
 
 def test_aggregates_cover_only_the_users_own_books(two_users):

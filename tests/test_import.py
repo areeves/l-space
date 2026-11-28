@@ -152,7 +152,7 @@ def test_any_sequence_of_imports_ends_where_a_fresh_import_would():
         store.import_books(current)
         fresh = new_library()
         fresh.import_books(current)
-        strip = lambda books: [b.model_copy(update={"id": None}) for b in books]
+        strip = lambda books: [b.model_copy(update={"id": None, "public_id": None}) for b in books]
         assert strip(store.all_books()) == strip(fresh.all_books()), f"step {step}"
         assert assert_index_matches_blob(store) == len(current)
 

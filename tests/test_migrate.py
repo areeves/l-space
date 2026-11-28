@@ -156,7 +156,7 @@ def make_old_db(path: Path, ddl: tuple[str, ...], user_version: int) -> list[tup
             for b in BOOKS:
                 conn.exec_driver_sql(
                     "INSERT INTO books (source_id, title, data) VALUES (?, ?, ?)",
-                    (b.source_id, b.title, b.model_dump_json()),
+                    (b.source_id, b.title, b.model_dump_json(exclude={"public_id"})),
                 )
     with engine.begin() as conn:  # gaps in the ids: they must survive adoption
         conn.exec_driver_sql("DELETE FROM books WHERE id IN (3, 5)")

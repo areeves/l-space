@@ -5,12 +5,12 @@ import httpx2
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from l_space.api.schemas import BookOut
 from l_space.ask.answer import Answer, answer_question
 from l_space.core.settings import Settings, get_settings
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.library.filters import BookFilter
-from l_space.library.models import Book
-from l_space.library.store import LibraryStore, UserLibrary
+from l_space.library.store import LibraryStore, User, UserLibrary
 from l_space.models.provider import ModelProvider, from_settings, router_from_settings
 
 router = APIRouter()
@@ -20,9 +20,17 @@ def get_store(settings: Settings = Depends(get_settings)) -> LibraryStore:
     return LibraryStore.from_settings(settings)
 
 
-def get_library(store: LibraryStore = Depends(get_store)) -> UserLibrary:
-    """The library the request acts on. Until login exists (phase 2) that is the default owner's."""
-    return store.for_user(store.default_owner().id)
+def current_user(store: LibraryStore = Depends(get_store)) -> User:
+    """Who is making the request. Until login exists (phase 2) that is the default owner; phase 2
+    replaces this body with token authentication, and nothing else needs to change."""
+    return store.default_owner()
+
+
+def get_library(
+    user: User = Depends(current_user), store: LibraryStore = Depends(get_store)
+) -> UserLibrary:
+    """The caller's own library: the only way a route reaches books."""
+    return store.for_user(user.id)
 
 
 def get_provider(settings: Settings = Depends(get_settings)) -> ModelProvider:
@@ -53,9 +61,17 @@ def import_library(path: str, library: UserLibrary = Depends(get_library)) -> di
     return {**asdict(result), "total": result.total}
 
 
-@router.get("/library/books", response_model=list[Book], response_model_exclude={"raw"})
-def list_books(library: UserLibrary = Depends(get_library)) -> list[Book]:
-    return library.all_books()
+@router.get("/library/books", response_model=list[BookOut])
+def list_books(library: UserLibrary = Depends(get_library)) -> list[BookOut]:
+    return [BookOut.from_book(b) for b in library.all_books()]
+
+
+@router.get("/library/books/{public_id}", response_model=BookOut)
+def get_book(public_id: str, library: UserLibrary = Depends(get_library)) -> BookOut:
+    book = library.get_book(public_id)
+    if book is None:  # unknown, or another user's: the same answer, so ids reveal nothing
+        raise HTTPException(status_code=404, detail="No such book")
+    return BookOut.from_book(book)
 
 
 @router.get("/library/narrators")
