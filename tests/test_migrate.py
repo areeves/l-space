@@ -4,9 +4,10 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from awkward import EXTRA
 from l_space.core.settings import Settings
@@ -15,13 +16,21 @@ from l_space.library import migrate as migrate_module
 from l_space.library.engine import create_db_engine
 from l_space.library.migrate import (
     BASELINE,
+    alembic_config,
     current_revision,
     head_revision,
     migrate,
     needs_migration,
     prepare_database,
 )
-from l_space.library.store_sql import SqlLibraryStore, insert_books
+from l_space.library.models import Book
+from l_space.library.store_sql import (
+    SqlLibraryStore,
+    _blob,
+    _insert_children,
+    _row_values,
+    index_rows,
+)
 from l_space.library.tables import metadata
 from test_store_schema import assert_index_matches_blob
 
@@ -34,7 +43,8 @@ def schema(engine) -> list[tuple]:
         rows = conn.exec_driver_sql(
             "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name"
         )
-        return [(name, " ".join(sql.split())) for name, sql in rows]
+        # SQLite writes `CREATE TABLE "books"` after a rename and `books` otherwise: same table.
+        return [(name, " ".join(sql.replace('"', "").split())) for name, sql in rows]
 
 
 @pytest.fixture
@@ -114,6 +124,16 @@ V0_DDL = (
 )
 
 
+def insert_old_shape(conn, books) -> None:
+    """Books written the way releases before ownership did: no ``user_id``, no ``public_id``."""
+    for book in books:
+        values = _row_values(book, _blob(book))
+        columns = ", ".join(values)
+        marks = ", ".join(f":{name}" for name in values)
+        result = conn.execute(text(f"INSERT INTO books ({columns}) VALUES ({marks})"), values)
+        _insert_children(conn, result.lastrowid, index_rows(book))
+
+
 def make_old_db(path: Path, ddl: tuple[str, ...], user_version: int) -> list[tuple]:
     """Create a database as an earlier release did; return its (id, data) rows."""
     conn = sqlite3.connect(path)
@@ -125,7 +145,7 @@ def make_old_db(path: Path, ddl: tuple[str, ...], user_version: int) -> list[tup
     engine = create_db_engine(f"sqlite:///{path}")
     if ddl is V2_DDL:
         with engine.begin() as conn:
-            insert_books(conn, [(None, b) for b in BOOKS])
+            insert_old_shape(conn, BOOKS)
     else:
         with engine.begin() as conn:
             for b in BOOKS:
@@ -167,7 +187,7 @@ def test_adoption_is_atomic(tmp_path, monkeypatch):
     path = tmp_path / "old.db"
     make_old_db(path, V0_DDL, 0)
 
-    def boom(conn, rows):
+    def boom(*args, **kwargs):
         raise RuntimeError("interrupted")
 
     monkeypatch.setattr(migrate_module, "insert_books", boom)
@@ -230,3 +250,118 @@ def test_the_cli_migrate_command(tmp_path, monkeypatch, capsys):
     engine = create_db_engine(f"sqlite:///{tmp_path / 'cli.db'}")
     assert not needs_migration(engine)
     engine.dispose()
+
+
+# --- Ownership (migration 0002) --------------------------------------------------------------
+
+
+def owners(engine) -> list[tuple]:
+    with engine.connect() as conn:
+        rows = conn.exec_driver_sql(
+            "SELECT username, username_cf, password_hash, is_admin, disabled FROM users"
+        )
+        return [tuple(r) for r in rows]
+
+
+def baseline_database(engine) -> None:
+    """A database at revision 0001 holding the books, with gaps in the ids (3, 5 and the last)."""
+    with engine.begin() as conn:
+        command.upgrade(alembic_config(conn), BASELINE)
+        insert_old_shape(conn, BOOKS)
+        last = conn.exec_driver_sql("SELECT MAX(id) FROM books").scalar()
+        conn.exec_driver_sql(f"DELETE FROM books WHERE id IN (3, 5, {last})")
+
+
+def snapshot(engine) -> dict:
+    with engine.connect() as conn:
+        def rows(query):
+            return sorted(tuple(r) for r in conn.exec_driver_sql(query))
+
+        return {
+            "books": rows(
+                "SELECT id, source_id, title, data, is_audiobook, format, duration_minutes, "
+                "my_rating, finished, release_date, parent_category_cf, child_category_cf FROM books"
+            ),
+            "people": rows("SELECT * FROM book_people"),
+            "series": rows("SELECT * FROM book_series"),
+            "tags": rows("SELECT * FROM book_tags"),
+            "sequence": rows("SELECT seq FROM sqlite_sequence WHERE name = 'books'"),
+        }
+
+
+def test_a_fresh_database_gets_the_default_owner(engine):
+    migrate(engine)
+    assert owners(engine) == [("owner", "owner", None, 1, 0)]  # admin, cannot log in yet
+
+
+def test_the_owner_can_be_named(engine):
+    migrate(engine, owner="  Alice ")
+    assert owners(engine) == [("Alice", "alice", None, 1, 0)]
+    migrate(engine, owner="Someone Else")  # ignored once users exist
+    assert owners(engine) == [("Alice", "alice", None, 1, 0)]
+
+
+def test_a_blank_owner_name_is_refused_and_nothing_changes(engine):
+    with pytest.raises(ValueError, match="needs a name"):
+        migrate(engine, owner="   ")
+    assert current_revision(engine) is None
+
+
+def test_upgrading_a_populated_database_keeps_every_book_and_child_row(engine):
+    baseline_database(engine)
+    before = snapshot(engine)
+    assert before["people"] and before["series"] and before["tags"]  # the trap needs children
+
+    migrate(engine)
+
+    after = snapshot(engine)
+    assert after == before  # books, children and the autoincrement counter, untouched
+    with engine.connect() as conn:
+        rows = conn.exec_driver_sql("SELECT user_id, public_id FROM books").all()
+        owner_id = conn.exec_driver_sql("SELECT id FROM users").scalar()
+        assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1  # restored
+    assert {user_id for user_id, _ in rows} == {owner_id}  # the owner got every book
+    public_ids = [public_id for _, public_id in rows]
+    assert len(set(public_ids)) == len(public_ids) == len(before["books"])
+    assert all(len(p) >= 16 for p in public_ids)
+    assert assert_index_matches_blob(SqlLibraryStore(engine)) == len(before["books"])
+
+
+def test_the_upgraded_schema_is_the_fresh_one(engine, tmp_path):
+    baseline_database(engine)
+    migrate(engine)
+    fresh = create_db_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
+    migrate(fresh)
+    assert schema(engine) == schema(fresh)
+    fresh.dispose()
+
+
+def test_ids_are_not_reused_after_the_upgrade(engine):
+    baseline_database(engine)
+    seq_before = snapshot(engine)["sequence"][0][0]
+    migrate(engine)
+    store = SqlLibraryStore(engine)
+    store.import_books([*store.all_books(), Book(source_id="NEW", title="New")])
+    with engine.connect() as conn:
+        new_id = conn.exec_driver_sql("SELECT id FROM books WHERE source_id = 'NEW'").scalar()
+    assert new_id > seq_before
+
+
+def test_the_default_owner_setting_and_the_cli_flag(tmp_path, monkeypatch):
+    from l_space import cli
+    from l_space.library import engine as engine_module
+
+    settings = Settings(_env_file=None, db_path=tmp_path / "a.db", default_owner="Zed")
+    prepare_database(settings)
+    engine_a = create_db_engine(settings.sqlalchemy_url())
+    assert owners(engine_a)[0][:2] == ("Zed", "zed")
+    engine_a.dispose()
+
+    engine_module._shared_engine.cache_clear()
+    monkeypatch.setenv("L_SPACE_DB_PATH", str(tmp_path / "b.db"))
+    monkeypatch.setenv("L_SPACE_DEFAULT_OWNER", "Ignored")
+    monkeypatch.setattr("sys.argv", ["l-space", "migrate", "--owner", "Flagged"])
+    cli.main()
+    engine_b = create_db_engine(f"sqlite:///{tmp_path / 'b.db'}")
+    assert owners(engine_b)[0][:2] == ("Flagged", "flagged")  # the flag beats the setting
+    engine_b.dispose()

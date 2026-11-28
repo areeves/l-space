@@ -155,3 +155,36 @@ def test_any_sequence_of_imports_ends_where_a_fresh_import_would():
         strip = lambda books: [b.model_copy(update={"id": None}) for b in books]
         assert strip(store.all_books()) == strip(fresh.all_books()), f"step {step}"
         assert assert_index_matches_blob(store) == len(current)
+
+
+def test_books_belong_to_the_owner_and_get_opaque_public_ids(store):
+    rows = sql(store, "SELECT user_id, public_id FROM books")
+    owner = sql(store, "SELECT id FROM users")[0][0]
+    assert {user_id for user_id, _ in rows} == {owner}
+    public_ids = [public_id for _, public_id in rows]
+    assert len(set(public_ids)) == len(BOOKS)
+    assert all(len(p) >= 16 and p.isascii() and "/" not in p and " " not in p for p in public_ids)
+
+
+def test_public_ids_survive_re_imports_and_updates(store):
+    before = dict(sql(store, "SELECT source_id, public_id FROM books"))
+    store.import_books(BOOKS)  # unchanged
+    store.import_books([edited(BOOKS[0], title="Retitled"), *BOOKS[1:]])  # updated
+    store.import_books([BOOKS[0], *BOOKS[2:]])  # one removed
+    store.import_books(BOOKS)  # and back: the removed one is new again
+    after = dict(sql(store, "SELECT source_id, public_id FROM books"))
+    gone = BOOKS[1].source_id
+    assert {k: v for k, v in after.items() if k != gone} == {k: v for k, v in before.items() if k != gone}
+    assert after[gone] != before[gone]  # a re-added book is a new row with a new identifier
+
+
+def test_importing_without_any_user_is_a_clear_error():
+    from sqlalchemy import delete
+
+    from l_space.library import tables
+
+    store = new_store()
+    with store.engine.begin() as conn:
+        conn.execute(delete(tables.users))
+    with pytest.raises(RuntimeError, match="l-space migrate"):
+        store.import_books(BOOKS)

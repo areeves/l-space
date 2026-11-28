@@ -259,9 +259,7 @@ cleanly), then 3, then 4 and 5 (independent of each other), then 6.
   clean; `EXPLAIN QUERY PLAN` on SQLite still uses the same indexes for the same queries; no
   API behaviour change.
 - Out of scope: async engine (decide in phase 3), the Postgres implementation, tenancy.
-- Risks: the adoption step writes with the current `insert_books`, so once a revision changes
-  `books` it must write the baseline shape itself or be retired (noted in `migrate.py`).
-  SQLite `:memory:` and connection pooling quirks; Alembic autogenerate quirks on
+- Risks: SQLite `:memory:` and connection pooling quirks; Alembic autogenerate quirks on
   SQLite; keeping the substring helper's behaviour identical to the pure-Python oracle.
 
 ### Phase 1: Tenancy in the data layer (the core change)
@@ -287,11 +285,22 @@ dependency returns it. Steps (branches `mu/1-N-...`, PRs with `multi-user` as ba
    `POST /library/import` returns the counts (and `total`). Unchanged means the stored blob is
    byte-identical to the new one. Known: an empty import still empties the library, as
    replace-all did; revisit with the Phase 2 upload endpoint (a guard or a confirmation).
-4. [ ] `mu/1-4-tenancy-schema`: Alembic `0002` (`users`, `books.user_id`, `books.public_id`,
-   the user-leading unique constraints and indexes); the migration creates the default owner,
-   assigns every existing book to it and generates `public_id`s; adoption gets a frozen
-   baseline-shaped writer (see the note in `migrate.py`). Queries unchanged (one user).
-5. [ ] `mu/1-5-scoped-store`: split `LibraryStore` (users, `for_user(user_id)`) from
+4. [x] `mu/1-4-tenancy-schema`: Alembic `0002`: `users` (`username` as typed, unique
+   casefolded `username_cf`, nullable `password_hash`, `created_at`, `is_admin`, `disabled`),
+   `books.user_id` (FK, cascade) and `books.public_id`, and `UNIQUE(user_id, source_id)` /
+   `UNIQUE(user_id, public_id)` replacing the global `UNIQUE(source_id)`. The migration creates
+   the default owner (admin, no password; `l-space migrate --owner NAME` or
+   `L_SPACE_DEFAULT_OWNER`, default `owner`), gives it every existing book, and generates the
+   `public_id`s (`secrets.token_urlsafe(12)`). `migrate()` now runs SQLite with foreign keys off
+   (dropping the old `books` table with them on cascade-deletes every child row; a test pins
+   this) and checks `PRAGMA foreign_key_check` before committing; the autoincrement counter is
+   preserved. Adoption of pre-Alembic databases now writes into the head schema with the current
+   `insert_books`, so it no longer needs a frozen writer. Until step 5 the store finds the
+   owner itself (`_owner_id`, the lowest user id) and its queries are not yet scoped. **Index
+   changes moved to step 5** (a new revision `0003`): user-leading indexes only help queries
+   that filter on `user_id`, so they land with the queries and their plan tests.
+5. [ ] `mu/1-5-scoped-store`: Alembic `0003` swaps the duration / rating indexes for
+   user-leading ones and adds `(user_id, title)`; split `LibraryStore` (users, `for_user(user_id)`) from
    `UserLibrary` (every book read and write, always scoped); per-user import; the two-user test
    fixture; store-level isolation tests, including one that fails if a public book method has
    no user scope.

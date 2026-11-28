@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # are run as a separate deploy step (`l-space migrate`); the app then refuses to start on
     # an out-of-date database instead of failing on the first query.
     auto_migrate: bool = True
+    # Name of the account that takes over an existing library when the database first gets users.
+    # Only used by that one migration; changing it later has no effect.
+    default_owner: str = "owner"
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
     # Optional larger model for routing only. Routing is a short, accuracy-critical call, while

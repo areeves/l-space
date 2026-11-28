@@ -79,9 +79,14 @@ l-space migrate                          # create or upgrade the database
 make migration m="describe the change"   # write a migration from edits to library/tables.py
 ```
 
+The multi-user schema change (the `users` table, books owned per user) cannot be undone, so copy
+`data/l-space.db` before upgrading an existing library.
+
 Settings (environment variables or `.env`): `L_SPACE_DB_PATH` (SQLite file),
 `L_SPACE_DATABASE_URL` (a full SQLAlchemy URL, wins over the path), `L_SPACE_DB_POOL_TIMEOUT`,
-and `L_SPACE_AUTO_MIGRATE` (default `true`; set `false` to run `l-space migrate` as a separate
+`L_SPACE_DEFAULT_OWNER` (default `owner`: the account that takes over an existing library the
+first time the database gets users; `l-space migrate --owner NAME` overrides it), and
+`L_SPACE_AUTO_MIGRATE` (default `true`; set `false` to run `l-space migrate` as a separate
 deploy step, in which case the app refuses to start on an out-of-date database).
 
 ## Asking questions
