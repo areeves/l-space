@@ -5,20 +5,30 @@ tables are a derived projection of it, produced by ``store_sql.index_rows`` and 
 Child ``*_cf`` columns are casefolded in Python when written, with the same ``str.casefold`` the
 pure-Python queries use, so SQL matching cannot disagree with them.
 
-The store (``store_sql.py``) creates and fills these tables; the Alembic migrations (phase 0.5,
-step 5) will be built on them too.
+Ownership: every book belongs to one user (``books.user_id``), and each user owns their own
+copy of every book (decision D2), so ``source_id`` is unique per user, not globally. Child tables
+point at their book and inherit its owner. ``public_id`` is the opaque identifier the API will
+use instead of the integer ``id`` (decision D5).
+
+The store (``store_sql.py``) fills these tables; the Alembic migrations in ``l_space/migrations``
+create them, and ``tests/test_migrate.py`` checks the two agree.
 """
 
 from sqlalchemy import (
     REAL,
+    Boolean,
     CheckConstraint,
     Column,
+    DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     MetaData,
     Table,
     Text,
+    UniqueConstraint,
+    false,
 )
 
 # Stable constraint names: Alembic's batch mode on SQLite needs them to alter tables.
@@ -36,13 +46,28 @@ def _book_id() -> Column:
     return Column("book_id", Integer, ForeignKey("books.id", ondelete="CASCADE"), nullable=False)
 
 
+# One row per account. ``username`` is shown as typed; ``username_cf`` (casefolded) is what logins
+# match and what must be unique. A NULL ``password_hash`` means the account cannot log in yet.
+users = Table(
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("username", Text, nullable=False),
+    Column("username_cf", Text, nullable=False, unique=True),
+    Column("password_hash", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("is_admin", Boolean, nullable=False, server_default=false()),
+    Column("disabled", Boolean, nullable=False, server_default=false()),
+    sqlite_autoincrement=True,
+)
+
 # REAL is SQLite's 8-byte float; on Postgres it is a 4-byte float, which holds ratings and
 # series positions (halves and whole numbers) exactly.
 books = Table(
     "books",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("source_id", Text, nullable=False, unique=True),
+    Column("source_id", Text, nullable=False),
     Column("title", Text, nullable=False),
     Column("data", Text, nullable=False),  # the full Book as JSON, including the source row
     Column("is_audiobook", Integer, nullable=False),
@@ -53,6 +78,12 @@ books = Table(
     Column("release_date", Text),  # ISO 8601
     Column("parent_category_cf", Text, nullable=False),  # '' when absent, like `or ""` in Python
     Column("child_category_cf", Text, nullable=False),
+    # Added by migration 0002, so last in column order.
+    Column("user_id", Integer, nullable=False),
+    Column("public_id", Text, nullable=False),
+    ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+    UniqueConstraint("user_id", "source_id", name="uq_books_user_source"),
+    UniqueConstraint("user_id", "public_id", name="uq_books_user_public"),
     Index("idx_books_duration", "duration_minutes"),
     Index("idx_books_my_rating", "my_rating"),
     sqlite_autoincrement=True,

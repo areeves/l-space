@@ -23,14 +23,17 @@ def main() -> None:
     ask = sub.add_parser("ask", help="Ask a question about your library (needs the Ollama model)")
     ask.add_argument("question")
     ask.add_argument("--show-plan", action="store_true", help="Also print the query plan and checks")
-    sub.add_parser("migrate", help="Create or upgrade the database schema")
+    migrate_cmd = sub.add_parser("migrate", help="Create or upgrade the database schema")
+    migrate_cmd.add_argument(
+        "--owner", help="Name of the account that takes over an existing library (first migration only)"
+    )
     sub.add_parser("series-gaps", help="Numbered series where you own later books but not earlier ones")
     sub.add_parser("narrators", help="Narrators ranked by number of audiobooks")
     args = parser.parse_args()
 
     settings = get_settings()
     if args.command == "migrate":
-        migrate(get_engine(settings))
+        migrate(get_engine(settings), args.owner or settings.default_owner)
         print("Database is up to date")
         return
     try:

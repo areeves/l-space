@@ -10,6 +10,7 @@ Connection scope is one store call or one transaction, never longer (decision D8
 SQLite pool holds a single connection, so a call that kept it would block every other request.
 """
 
+import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -220,10 +221,17 @@ def _insert_children(conn: Connection, book_id: int, ix: IndexRows) -> None:
         )
 
 
-def insert_books(conn: Connection, rows: Iterable[tuple[int | None, Book]]) -> None:
-    """Write books (``id`` None = assign one) with their derived columns and child rows."""
+def new_public_id() -> str:
+    """An opaque identifier for the API: 96 random bits, URL-safe (decision D5)."""
+    return secrets.token_urlsafe(12)
+
+
+def insert_books(
+    conn: Connection, rows: Iterable[tuple[int | None, Book]], user_id: int
+) -> None:
+    """Write ``user_id``'s books (``id`` None = assign one) with derived columns and child rows."""
     for id_, book in rows:
-        values = _row_values(book, _blob(book))
+        values = {**_row_values(book, _blob(book)), "user_id": user_id, "public_id": new_public_id()}
         if id_ is not None:
             values["id"] = id_
         book_id = conn.execute(insert(tables.books).values(**values)).inserted_primary_key[0]
@@ -255,15 +263,26 @@ class SqlLibraryStore(LibraryStore):
         store.import_books(books)
         return store
 
+    @staticmethod
+    def _owner_id(conn: Connection) -> int:
+        """The account that owns the library. Temporary: step 5 scopes the store to a user."""
+        owner = conn.execute(select(func.min(tables.users.c.id))).scalar()
+        if owner is None:
+            raise RuntimeError("There is no user to own the books. Run: l-space migrate")
+        return owner
+
     def import_books(self, books: Iterable[Book]) -> ImportResult:
         incoming = {b.source_id: b for b in books}  # the last duplicate wins
         added: list[Book] = []
         updated = unchanged = 0
         with self.engine.begin() as conn:
+            owner_id = self._owner_id(conn)
             existing = {
                 source_id: (id_, data)
                 for id_, source_id, data in conn.execute(
-                    select(tables.books.c.id, tables.books.c.source_id, tables.books.c.data)
+                    select(tables.books.c.id, tables.books.c.source_id, tables.books.c.data).where(
+                        tables.books.c.user_id == owner_id
+                    )
                 )
             }
             for source_id, book in incoming.items():
@@ -279,8 +298,9 @@ class SqlLibraryStore(LibraryStore):
                     updated += 1
             gone = [id_ for source_id, (id_, _) in existing.items() if source_id not in incoming]
             for start in range(0, len(gone), 500):  # stay under SQLite's variable limit
-                conn.execute(delete(tables.books).where(tables.books.c.id.in_(gone[start : start + 500])))
-            insert_books(conn, ((None, b) for b in added))  # children go with a delete (CASCADE)
+                ids = gone[start : start + 500]
+                conn.execute(delete(tables.books).where(tables.books.c.id.in_(ids)))
+            insert_books(conn, ((None, b) for b in added), owner_id)  # children go with a delete (CASCADE)
         return ImportResult(len(added), updated, unchanged, len(gone))
 
     def all_books(self) -> list[Book]:
