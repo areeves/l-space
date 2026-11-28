@@ -10,7 +10,7 @@ SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 
 def make_store() -> LibraryStore:
     store = new_store(":memory:")
-    store.replace_all(load_ale_csv(SAMPLE))
+    store.import_books(load_ale_csv(SAMPLE))
     return store
 
 
@@ -20,7 +20,7 @@ def by_title(store: LibraryStore) -> dict:
 
 def test_import_is_idempotent():
     store = make_store()
-    assert store.replace_all(load_ale_csv(SAMPLE)) == 12
+    assert store.import_books(load_ale_csv(SAMPLE)).total == 12
     assert len(store.all_books()) == 12
 
 
@@ -87,7 +87,7 @@ def awkward_store() -> LibraryStore:
         source_id="P1", title="Pod", format="Podcast", series=[SeriesEntry(name="Pod Run", position=3)]
     )
     store = make_store()
-    store.replace_all([*load_ale_csv(SAMPLE), *EXTRA, podcast])
+    store.import_books([*load_ale_csv(SAMPLE), *EXTRA, podcast])
     return store
 
 

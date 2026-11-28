@@ -56,6 +56,10 @@ l-space import data/private/my-library.csv
 l-space series-gaps
 ```
 
+Importing is an upsert: books are matched by their Audible ID, so re-importing a fresh export
+updates changed books in place, leaves identical ones untouched, adds new ones and removes books
+that are no longer in the file. The command prints how many of each.
+
 Things the importer deals with, all covered by tests: lengths like `16h 54m `, progress as
 `Finished` or `10h 48m left`, books in several series at once, unnumbered umbrella series
 (`The Cosmere (book )`), decimal and omnibus positions (`book 22.5`, `book 1-7`), role

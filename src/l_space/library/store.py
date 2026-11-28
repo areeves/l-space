@@ -3,11 +3,33 @@ with plain code, never by a language model."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from l_space.core.settings import Settings
 from l_space.library import queries
 from l_space.library.filters import BookFilter
 from l_space.library.models import Book
+
+
+@dataclass(frozen=True)
+class ImportResult:
+    """What an import changed."""
+
+    added: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    removed: int = 0
+
+    @property
+    def total(self) -> int:
+        """Books in the library after the import."""
+        return self.added + self.updated + self.unchanged
+
+    def summary(self) -> str:
+        return (
+            f"{self.total} books: {self.added} added, {self.updated} updated, "
+            f"{self.unchanged} unchanged, {self.removed} removed"
+        )
 
 
 class LibraryStore(ABC):
@@ -19,8 +41,13 @@ class LibraryStore(ABC):
         return SqlLibraryStore(get_engine(settings))
 
     @abstractmethod
-    def replace_all(self, books: Iterable[Book]) -> int:
-        """Replace the whole library with `books` (re-import is idempotent) and return the count."""
+    def import_books(self, books: Iterable[Book]) -> ImportResult:
+        """Make the library match ``books``, matching rows by ``source_id``.
+
+        New books are added, changed ones updated in place (they keep their ``id``), identical
+        ones left alone, and books missing from ``books`` removed. All or nothing. If a
+        ``source_id`` appears twice, the last one wins.
+        """
 
     @abstractmethod
     def all_books(self) -> list[Book]:

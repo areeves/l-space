@@ -32,7 +32,7 @@ def test_the_store_holds_no_connection_between_calls(tmp_path):
     store = new_store(tmp_path / "t.db")
     pool = store.engine.pool
     calls = [
-        lambda: store.replace_all(BOOKS),
+        lambda: store.import_books(BOOKS),
         store.all_books,
         store.count_books,
         lambda: store.filter_books(BookFilter(author="verrow")),
@@ -45,7 +45,7 @@ def test_the_store_holds_no_connection_between_calls(tmp_path):
 
 def test_concurrent_store_calls_are_serialized_not_broken(tmp_path):
     store = new_store(tmp_path / "t.db")
-    store.replace_all(BOOKS)
+    store.import_books(BOOKS)
     errors = []
 
     def work() -> None:
@@ -85,7 +85,7 @@ def test_from_settings_builds_a_sql_store_on_the_shared_engine(tmp_path):
 
     first = LibraryStore.from_settings(settings)
     assert isinstance(first, SqlLibraryStore)
-    first.replace_all(BOOKS)
+    first.import_books(BOOKS)
 
     second = LibraryStore.from_settings(settings)  # the next request builds a new store...
     assert second.engine is first.engine  # ...on the same engine

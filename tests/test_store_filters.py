@@ -14,7 +14,7 @@ SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 
 @pytest.fixture(scope="module")
 def store(empty_store) -> SqlLibraryStore:
-    empty_store.replace_all([*load_ale_csv(SAMPLE), *EXTRA])
+    empty_store.import_books([*load_ale_csv(SAMPLE), *EXTRA])
     return empty_store
 
 
