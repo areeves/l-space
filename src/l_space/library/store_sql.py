@@ -181,13 +181,17 @@ def build_where(f: BookFilter) -> ColumnElement[bool]:
     return and_(*conditions)
 
 
-def _to_book(id_: int, data: str) -> Book:
-    return Book.model_validate_json(data).model_copy(update={"id": id_})
+def _to_book(id_: int, data: str, public_id: str | None = None) -> Book:
+    return Book.model_validate_json(data).model_copy(update={"id": id_, "public_id": public_id})
 
 
 def _blob(book: Book) -> str:
-    """The book as stored in ``data``. The id lives in the column, so a rebuild reproduces it."""
-    return book.model_copy(update={"id": None}).model_dump_json()
+    """The book as stored in ``data``.
+
+    ``id`` and ``public_id`` live in columns, so a rebuild reproduces them; ``public_id`` is left
+    out entirely, which keeps the bytes the same as before the field existed.
+    """
+    return book.model_copy(update={"id": None}).model_dump_json(exclude={"public_id"})
 
 
 def _row_values(book: Book, blob: str) -> dict:
@@ -380,7 +384,7 @@ class SqlUserLibrary(UserLibrary):
 
     def _select_books(self, where: ColumnElement[bool] | None) -> list[Book]:
         query = (
-            select(tables.books.c.id, tables.books.c.data)
+            select(tables.books.c.id, tables.books.c.public_id, tables.books.c.data)
             .where(self._mine)
             .order_by(title_order(self.engine.dialect.name))
         )
@@ -389,7 +393,11 @@ class SqlUserLibrary(UserLibrary):
         with self.engine.connect() as conn:
             rows = conn.execute(query).all()
         # Parsed after the connection is released: CPU work never holds the pool's only slot.
-        return [_to_book(id_, data) for id_, data in rows]
+        return [_to_book(id_, data, public_id) for id_, public_id, data in rows]
+
+    def get_book(self, public_id: str) -> Book | None:
+        books = self._select_books(tables.books.c.public_id == public_id)
+        return books[0] if books else None
 
     def narrator_counts(self, f: BookFilter | None = None) -> list[tuple[str, int]]:
         return self._people_counts("narrator", f)

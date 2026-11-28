@@ -311,9 +311,14 @@ dependency returns it. Steps (branches `mu/1-N-...`, PRs with `multi-user` as ba
    store fixture now keeps another user's books in the same database, so any unscoped query
    fails the differential tests; plan tests read the statements the library really runs and
    require no table scan.
-6. [ ] `mu/1-6-scoped-routes-and-bookout`: `current_user` stand-in; routes and CLI through
-   `for_user`; `BookOut`; new `GET /library/books/{public_id}`; route-level isolation tests
-   (another user's `public_id` is a 404).
+6. [x] `mu/1-6-scoped-routes-and-bookout`: a `current_user` dependency (the default owner
+   until phase 2 swaps in token auth) feeds `get_library`, the only way a route reaches books;
+   `BookOut` (explicit fields: `public_id`, `source_id`, no integer `id`, no `raw`; a test
+   forces a decision whenever `Book` gains a field); `Book.public_id`, set by the store and
+   left out of the stored blob (the bytes are unchanged, so existing databases need no
+   rewrite); `UserLibrary.get_book(public_id)`; `GET /library/books/{public_id}`, where another
+   user's id and an unknown one give the identical 404. Route-level isolation tests, including
+   one that fails if a route does not depend on `get_library`.
 
 Decisions (Phase 1):
 
@@ -356,7 +361,7 @@ Decisions (Phase 1):
   `finished = 0`. Keep `series_gaps` in Python (set logic over positions and omnibus ranges)
   but read only the series rows it needs. Preserve existing semantics: `series_gaps` does not
   exclude non-audiobook formats.
-- [ ] **API identifiers (D5).** A `BookOut` response schema: no integer `id`, no `raw`;
+- [x] **API identifiers (D5).** A `BookOut` response schema: no integer `id`, no `raw`;
   `public_id` and `source_id` as plain fields. Book routes take `public_id` and go through the
   scoped store; another user's `public_id` returns 404.
 - [x] **Isolation tests** (the most important tests in the project): two users with the same

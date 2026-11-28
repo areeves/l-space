@@ -96,6 +96,10 @@ class UserLibrary(ABC):
 
     user_id: int
 
+    def get_book(self, public_id: str) -> Book | None:
+        """One of this user's books by its public id; None if it is not theirs or does not exist."""
+        return next((b for b in self.all_books() if b.public_id == public_id), None)
+
     @abstractmethod
     def import_books(self, books: Iterable[Book]) -> ImportResult:
         """Make the library match ``books``, matching rows by ``source_id``.
