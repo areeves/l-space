@@ -5,7 +5,7 @@ from typing import Any
 
 from l_space.ask.plan import QueryPlan
 from l_space.library.models import Book
-from l_space.library.store import LibraryStore
+from l_space.library.store import UserLibrary
 
 
 @dataclass
@@ -71,23 +71,23 @@ def _sorted(books: list[Book], sort: str) -> list[Book]:
     return sorted(books, key=lambda b: b.title.casefold())
 
 
-def execute(plan: QueryPlan, store: LibraryStore) -> Result:
+def execute(plan: QueryPlan, library: UserLibrary) -> Result:
     op = plan.op
     if op == "list_books":
-        matched = _sorted(store.filter_books(plan.to_filter()), plan.sort)
+        matched = _sorted(library.filter_books(plan.to_filter()), plan.sort)
         return Result(op, len(matched), [_book_row(b) for b in matched[: plan.limit]])
 
     if op == "count_books":
-        return Result(op, store.count_books(plan.to_filter()))
+        return Result(op, library.count_books(plan.to_filter()))
 
     if op in ("narrator_counts", "author_counts"):
-        counts = store.narrator_counts if op == "narrator_counts" else store.author_counts
+        counts = library.narrator_counts if op == "narrator_counts" else library.author_counts
         pairs = counts(plan.to_filter())
         label = "narrator" if op == "narrator_counts" else "author"
         return Result(op, len(pairs), [{label: n, "books": c} for n, c in pairs[: plan.limit]])
 
     if op == "series_gaps":
-        gaps = store.series_gaps()
+        gaps = library.series_gaps()
         if plan.series:
             gaps = [g for g in gaps if plan.series.casefold() in g["series"].casefold()]
         rows = [
@@ -97,7 +97,7 @@ def execute(plan: QueryPlan, store: LibraryStore) -> Result:
         return Result(op, len(gaps), rows)
 
     if op == "in_progress":
-        started = store.in_progress(plan.to_filter())
+        started = library.in_progress(plan.to_filter())
         return Result(op, len(started), [_book_row(b) for b in started[: plan.limit]])
 
     return Result(op, 0)

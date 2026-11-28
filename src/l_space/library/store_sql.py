@@ -13,6 +13,7 @@ SQLite pool holds a single connection, so a call that kept it would block every 
 import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Connection,
@@ -28,6 +29,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.functions import FunctionElement
@@ -35,7 +37,14 @@ from sqlalchemy.sql.functions import FunctionElement
 from l_space.library import queries, tables
 from l_space.library.filters import BookFilter
 from l_space.library.models import Book
-from l_space.library.store import ImportResult, LibraryStore
+from l_space.library.store import (
+    ImportResult,
+    LibraryStore,
+    UnknownUser,
+    User,
+    UserLibrary,
+    UsernameTaken,
+)
 
 # Derived scalar columns of ``books``, in the order ``IndexRows.values`` supplies them.
 INDEX_COLUMNS = (
@@ -246,42 +255,100 @@ def update_book(conn: Connection, id_: int, book: Book, blob: str) -> None:
     _insert_children(conn, id_, index_rows(book))
 
 
+def _user(row) -> User:
+    return User(
+        id=row.id,
+        username=row.username,
+        is_admin=bool(row.is_admin),
+        disabled=bool(row.disabled),
+        created_at=row.created_at,
+    )
+
+
 class SqlLibraryStore(LibraryStore):
     def __init__(self, engine: Engine):
         """The tables must already exist: ``migrate(engine)`` creates and upgrades them."""
         self.engine = engine
 
+    def for_user(self, user_id: int) -> "SqlUserLibrary":
+        if self.get_user(user_id) is None:
+            raise UnknownUser(user_id)
+        return SqlUserLibrary(self.engine, user_id)
+
+    def create_user(self, username: str, *, is_admin: bool = False) -> User:
+        name = username.strip()
+        if not name:
+            raise ValueError("A username can't be blank")
+        values = {
+            "username": name,
+            "username_cf": name.casefold(),
+            "created_at": datetime.now(UTC),
+            "is_admin": is_admin,
+            "disabled": False,
+        }
+        try:
+            with self.engine.begin() as conn:
+                user_id = conn.execute(insert(tables.users).values(**values)).inserted_primary_key[0]
+        except IntegrityError as exc:
+            raise UsernameTaken(name) from exc
+        return self.get_user(user_id)  # type: ignore[return-value]
+
+    def get_user(self, user_id: int) -> User | None:
+        return self._one(tables.users.c.id == user_id)
+
+    def find_user(self, username: str) -> User | None:
+        return self._one(tables.users.c.username_cf == username.strip().casefold())
+
+    def default_owner(self) -> User:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(tables.users).order_by(tables.users.c.id).limit(1)).first()
+        if row is None:
+            raise RuntimeError("There are no accounts yet. Run: l-space migrate")
+        return _user(row)
+
+    def delete_user(self, user_id: int) -> None:
+        # The books and their child rows go with the account (ON DELETE CASCADE).
+        with self.engine.begin() as conn:
+            deleted = conn.execute(delete(tables.users).where(tables.users.c.id == user_id))
+        if deleted.rowcount == 0:
+            raise UnknownUser(user_id)
+
+    def _one(self, where: ColumnElement[bool]) -> User | None:
+        with self.engine.connect() as conn:
+            row = conn.execute(select(tables.users).where(where)).first()
+        return _user(row) if row else None
+
+
+class SqlUserLibrary(UserLibrary):
+    """One user's books in SQL. Every query below is restricted to ``user_id``."""
+
+    def __init__(self, engine: Engine, user_id: int):
+        self.engine = engine
+        self.user_id = user_id
+        self._mine = tables.books.c.user_id == user_id
+
     @classmethod
-    def in_memory(cls, books: Iterable[Book] = ()) -> "SqlLibraryStore":
-        """A throwaway migrated database holding ``books`` (for scripts such as the evals)."""
+    def in_memory(cls, books: Iterable[Book] = ()) -> "SqlUserLibrary":
+        """A throwaway migrated database; the library of its default owner (for the evals)."""
         from l_space.library.engine import create_db_engine
         from l_space.library.migrate import migrate
 
         engine = create_db_engine("sqlite://")
         migrate(engine)
-        store = cls(engine)
-        store.import_books(books)
-        return store
-
-    @staticmethod
-    def _owner_id(conn: Connection) -> int:
-        """The account that owns the library. Temporary: step 5 scopes the store to a user."""
-        owner = conn.execute(select(func.min(tables.users.c.id))).scalar()
-        if owner is None:
-            raise RuntimeError("There is no user to own the books. Run: l-space migrate")
-        return owner
+        library = SqlLibraryStore(engine).for_user(SqlLibraryStore(engine).default_owner().id)
+        library.import_books(books)
+        return library
 
     def import_books(self, books: Iterable[Book]) -> ImportResult:
         incoming = {b.source_id: b for b in books}  # the last duplicate wins
         added: list[Book] = []
         updated = unchanged = 0
         with self.engine.begin() as conn:
-            owner_id = self._owner_id(conn)
             existing = {
                 source_id: (id_, data)
                 for id_, source_id, data in conn.execute(
                     select(tables.books.c.id, tables.books.c.source_id, tables.books.c.data).where(
-                        tables.books.c.user_id == owner_id
+                        self._mine
                     )
                 )
             }
@@ -299,8 +366,9 @@ class SqlLibraryStore(LibraryStore):
             gone = [id_ for source_id, (id_, _) in existing.items() if source_id not in incoming]
             for start in range(0, len(gone), 500):  # stay under SQLite's variable limit
                 ids = gone[start : start + 500]
-                conn.execute(delete(tables.books).where(tables.books.c.id.in_(ids)))
-            insert_books(conn, ((None, b) for b in added), owner_id)  # children go with a delete (CASCADE)
+                conn.execute(delete(tables.books).where(tables.books.c.id.in_(ids), self._mine))
+            # Children go with a delete (ON DELETE CASCADE).
+            insert_books(conn, ((None, b) for b in added), self.user_id)
         return ImportResult(len(added), updated, unchanged, len(gone))
 
     def all_books(self) -> list[Book]:
@@ -311,8 +379,10 @@ class SqlLibraryStore(LibraryStore):
         return self._select_books(build_where(f or BookFilter()))
 
     def _select_books(self, where: ColumnElement[bool] | None) -> list[Book]:
-        query = select(tables.books.c.id, tables.books.c.data).order_by(
-            title_order(self.engine.dialect.name)
+        query = (
+            select(tables.books.c.id, tables.books.c.data)
+            .where(self._mine)
+            .order_by(title_order(self.engine.dialect.name))
         )
         if where is not None:
             query = query.where(where)
@@ -331,7 +401,8 @@ class SqlLibraryStore(LibraryStore):
         """Names with their number of matching books, most first, ties by name.
 
         Counts rows, so a name listed twice on one book counts twice, as ``Counter.update``
-        does. Names are grouped exactly as written (not casefolded).
+        does. Names are grouped exactly as written (not casefolded). Starts from the user's own
+        books and looks their people up by ``book_id``, so other users' rows are never read.
         """
         # An alias, so the filter's own EXISTS on book_people does not auto-correlate into it.
         people = tables.book_people.alias("counted")
@@ -339,8 +410,8 @@ class SqlLibraryStore(LibraryStore):
         count = func.count()
         query = (
             select(name, count)
-            .select_from(people.join(tables.books, people.c.book_id == tables.books.c.id))
-            .where(people.c.role == role, build_where(f or BookFilter()))
+            .select_from(tables.books.join(people, people.c.book_id == tables.books.c.id))
+            .where(self._mine, people.c.role == role, build_where(f or BookFilter()))
             .group_by(name)
             .order_by(count.desc(), code_point_order(name, self.engine.dialect.name))
         )
@@ -354,14 +425,20 @@ class SqlLibraryStore(LibraryStore):
     def series_gaps(self) -> list[dict]:
         """Reads only the series rows, not the books' JSON."""
         series = tables.book_series
-        query = select(series.c.name, series.c.position, series.c.position_end).where(
-            series.c.position.is_not(None)
+        query = (
+            select(series.c.name, series.c.position, series.c.position_end)
+            .select_from(tables.books.join(series, series.c.book_id == tables.books.c.id))
+            .where(self._mine, series.c.position.is_not(None))
         )
         with self.engine.connect() as conn:
             entries = [tuple(row) for row in conn.execute(query)]
         return queries.gaps_from_entries(entries)
 
     def count_books(self, f: BookFilter | None = None) -> int:
-        query = select(func.count()).select_from(tables.books).where(build_where(f or BookFilter()))
+        query = (
+            select(func.count())
+            .select_from(tables.books)
+            .where(self._mine, build_where(f or BookFilter()))
+        )
         with self.engine.connect() as conn:
             return conn.execute(query).scalar_one()

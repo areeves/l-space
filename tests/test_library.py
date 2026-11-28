@@ -2,19 +2,19 @@ from pathlib import Path
 
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import queries
-from l_space.library.store import LibraryStore
-from stores import new_store
+from l_space.library.store import UserLibrary
+from stores import new_library
 
 SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 
 
-def make_store() -> LibraryStore:
-    store = new_store(":memory:")
+def make_store() -> UserLibrary:
+    store = new_library(":memory:")
     store.import_books(load_ale_csv(SAMPLE))
     return store
 
 
-def by_title(store: LibraryStore) -> dict:
+def by_title(store: UserLibrary) -> dict:
     return {b.title: b for b in store.all_books()}
 
 
@@ -79,7 +79,7 @@ def test_narrator_counts_filtered_by_my_rating():
 
 # The store's aggregate methods are the reference for SQL overrides (step 1-2): they must
 # match the pure functions in queries.py, including the semantics the API relies on.
-def awkward_store() -> LibraryStore:
+def awkward_store() -> UserLibrary:
     from awkward import EXTRA
     from l_space.library.models import Book, SeriesEntry
 

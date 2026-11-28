@@ -3,18 +3,18 @@ from fastapi.testclient import TestClient
 
 from conftest import SAMPLE
 from fakes import FakeProvider
-from l_space.api.routes import get_provider, get_store
+from l_space.api.routes import get_library, get_provider
 from l_space.ingestion.loaders import load_ale_csv
 from l_space.main import create_app
-from stores import new_store
+from stores import new_library
 
 
 def client_for(provider, with_books=True) -> TestClient:
-    store = new_store(":memory:")
+    store = new_library(":memory:")
     if with_books:
         store.import_books(load_ale_csv(SAMPLE))
     app = create_app()
-    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_library] = lambda: store
     app.dependency_overrides[get_provider] = lambda: provider
     return TestClient(app)
 

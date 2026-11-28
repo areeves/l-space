@@ -4,26 +4,26 @@ from pathlib import Path
 
 from awkward import EXTRA
 from l_space.ingestion.loaders import load_ale_csv
-from l_space.library.store_sql import INDEX_COLUMNS, SqlLibraryStore, _to_book, index_rows
-from stores import new_store
+from l_space.library.store_sql import INDEX_COLUMNS, SqlUserLibrary, _to_book, index_rows
+from stores import new_library
 
 SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 CHILD_TABLES = ("book_people", "book_series", "book_tags")
 
 
-def make_store(path=":memory:") -> SqlLibraryStore:
-    store = new_store(path)
+def make_store(path=":memory:") -> SqlUserLibrary:
+    store = new_library(path)
     store.import_books([*load_ale_csv(SAMPLE), *EXTRA])
     return store
 
 
-def sql(store: SqlLibraryStore, query: str, params=()) -> list[tuple]:
+def sql(store: SqlUserLibrary, query: str, params=()) -> list[tuple]:
     """Run raw SQL on the store's engine and return plain tuples."""
     with store.engine.connect() as conn:
         return [tuple(row) for row in conn.exec_driver_sql(query, params).all()]
 
 
-def child_rows(store: SqlLibraryStore, table: str, book_id: int) -> list:
+def child_rows(store: SqlUserLibrary, table: str, book_id: int) -> list:
     cols = {
         "book_people": "role, name, name_cf",
         "book_series": "name, name_cf, position, position_end",
@@ -33,7 +33,7 @@ def child_rows(store: SqlLibraryStore, table: str, book_id: int) -> list:
     return sorted(rows, key=repr)
 
 
-def assert_index_matches_blob(store: SqlLibraryStore) -> int:
+def assert_index_matches_blob(store: SqlUserLibrary) -> int:
     """Every row's columns and child rows equal what ``index_rows`` derives from its blob."""
     checked = 0
     for id_, data in sql(store, "SELECT id, data FROM books"):
@@ -87,6 +87,6 @@ def test_replacing_with_fewer_books_leaves_no_orphans():
 def test_reopening_a_database_changes_nothing(tmp_path):
     path = tmp_path / "lib.db"
     make_store(path).engine.dispose()
-    store = new_store(path)
+    store = new_library(path)
     assert len(store.all_books()) == len(EXTRA) + 12
     assert assert_index_matches_blob(store) > 0

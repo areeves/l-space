@@ -14,7 +14,7 @@ from l_space.library.filters import BookFilter
 from l_space.library.migrate import migrate
 from l_space.library.store import LibraryStore
 from l_space.library.store_sql import SqlLibraryStore
-from stores import new_store
+from stores import new_library
 
 SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
 BOOKS = [*load_ale_csv(SAMPLE), *EXTRA]
@@ -29,7 +29,7 @@ def fresh_engine_cache():
 
 def test_the_store_holds_no_connection_between_calls(tmp_path):
     # With a pool of one, a call that kept its connection would block every other request.
-    store = new_store(tmp_path / "t.db")
+    store = new_library(tmp_path / "t.db")
     pool = store.engine.pool
     calls = [
         lambda: store.import_books(BOOKS),
@@ -44,7 +44,7 @@ def test_the_store_holds_no_connection_between_calls(tmp_path):
 
 
 def test_concurrent_store_calls_are_serialized_not_broken(tmp_path):
-    store = new_store(tmp_path / "t.db")
+    store = new_library(tmp_path / "t.db")
     store.import_books(BOOKS)
     errors = []
 
@@ -85,10 +85,10 @@ def test_from_settings_builds_a_sql_store_on_the_shared_engine(tmp_path):
 
     first = LibraryStore.from_settings(settings)
     assert isinstance(first, SqlLibraryStore)
-    first.import_books(BOOKS)
+    first.for_user(first.default_owner().id).import_books(BOOKS)
 
     second = LibraryStore.from_settings(settings)  # the next request builds a new store...
     assert second.engine is first.engine  # ...on the same engine
-    assert len(second.all_books()) == len({b.source_id for b in BOOKS})
+    assert len(second.for_user(second.default_owner().id).all_books()) == len({b.source_id for b in BOOKS})
 
     first.engine.dispose()

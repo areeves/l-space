@@ -1,9 +1,17 @@
 """Persistence. Exact questions (counts, filters, series status) are answered here,
-with plain code, never by a language model."""
+with plain code, never by a language model.
+
+Two interfaces, so that no book can be read without saying whose it is:
+
+- ``LibraryStore``: accounts, and ``for_user(user_id)``. It has no book methods.
+- ``UserLibrary``: one user's books. Everything that reads or writes books lives here, and an
+  instance only ever sees the books of the user it was made for.
+"""
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 
 from l_space.core.settings import Settings
 from l_space.library import queries
@@ -32,13 +40,61 @@ class ImportResult:
         )
 
 
+@dataclass(frozen=True)
+class User:
+    id: int
+    username: str
+    is_admin: bool
+    disabled: bool
+    created_at: datetime
+
+
+class UsernameTaken(ValueError):
+    """Another account already has this username (usernames are unique ignoring case)."""
+
+
+class UnknownUser(LookupError):
+    """There is no account with this id."""
+
+
 class LibraryStore(ABC):
+    """Accounts, and the way to a user's library."""
+
     @classmethod
     def from_settings(cls, settings: Settings) -> "LibraryStore":
         from l_space.library.engine import get_engine
         from l_space.library.store_sql import SqlLibraryStore
 
         return SqlLibraryStore(get_engine(settings))
+
+    @abstractmethod
+    def for_user(self, user_id: int) -> "UserLibrary":
+        """The library of ``user_id``. Raises ``UnknownUser`` if there is no such account."""
+
+    @abstractmethod
+    def create_user(self, username: str, *, is_admin: bool = False) -> User:
+        """Add an account (it cannot log in until it has a password). Raises ``UsernameTaken``."""
+
+    @abstractmethod
+    def get_user(self, user_id: int) -> User | None: ...
+
+    @abstractmethod
+    def find_user(self, username: str) -> User | None:
+        """Look an account up by username, ignoring case."""
+
+    @abstractmethod
+    def default_owner(self) -> User:
+        """The first account: who the app acts as until login exists (phase 2)."""
+
+    @abstractmethod
+    def delete_user(self, user_id: int) -> None:
+        """Remove an account and, with it, all of that user's books."""
+
+
+class UserLibrary(ABC):
+    """One user's books."""
+
+    user_id: int
 
     @abstractmethod
     def import_books(self, books: Iterable[Book]) -> ImportResult:
