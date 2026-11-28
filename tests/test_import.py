@@ -10,7 +10,7 @@ from l_space.ingestion.loaders import load_ale_csv
 from l_space.library import store_sql
 from l_space.library.models import Book, SeriesEntry
 from l_space.library.store import ImportResult
-from stores import new_store
+from stores import new_library
 from test_store_schema import assert_index_matches_blob, sql
 
 SAMPLE = Path(__file__).parent.parent / "data" / "sample" / "library.csv"
@@ -33,13 +33,13 @@ def edited(book: Book, **fields) -> Book:
 
 @pytest.fixture
 def store():
-    store = new_store()
+    store = new_library()
     store.import_books(BOOKS)
     return store
 
 
 def test_the_first_import_adds_everything():
-    store = new_store()
+    store = new_library()
     result = store.import_books(BOOKS)
     assert result == ImportResult(added=len(BOOKS), updated=0, unchanged=0, removed=0)
     assert result.total == len(store.all_books())
@@ -110,7 +110,7 @@ def test_one_import_can_add_update_and_remove(store):
 
 
 def test_duplicate_source_ids_in_one_import_count_once_and_the_last_wins():
-    store = new_store()
+    store = new_library()
     first, last = Book(source_id="D", title="First"), Book(source_id="D", title="Last")
     result = store.import_books([first, last])
     assert result == ImportResult(added=1)
@@ -141,7 +141,7 @@ def test_any_sequence_of_imports_ends_where_a_fresh_import_would():
     # Random edits, additions and removals; after every step the store must equal a store that
     # imported the same books from scratch (ids aside), and its derived rows must agree.
     rng = random.Random(7)
-    store = new_store()
+    store = new_library()
     current: list[Book] = []
     pool = [*BOOKS, *(Book(source_id=f"R{i}", title=f"Random {i}") for i in range(10))]
     for step in range(25):
@@ -150,7 +150,7 @@ def test_any_sequence_of_imports_ends_where_a_fresh_import_would():
             for b in rng.sample(pool, rng.randint(0, len(pool)))
         ]
         store.import_books(current)
-        fresh = new_store()
+        fresh = new_library()
         fresh.import_books(current)
         strip = lambda books: [b.model_copy(update={"id": None}) for b in books]
         assert strip(store.all_books()) == strip(fresh.all_books()), f"step {step}"
@@ -176,15 +176,3 @@ def test_public_ids_survive_re_imports_and_updates(store):
     gone = BOOKS[1].source_id
     assert {k: v for k, v in after.items() if k != gone} == {k: v for k, v in before.items() if k != gone}
     assert after[gone] != before[gone]  # a re-added book is a new row with a new identifier
-
-
-def test_importing_without_any_user_is_a_clear_error():
-    from sqlalchemy import delete
-
-    from l_space.library import tables
-
-    store = new_store()
-    with store.engine.begin() as conn:
-        conn.execute(delete(tables.users))
-    with pytest.raises(RuntimeError, match="l-space migrate"):
-        store.import_books(BOOKS)

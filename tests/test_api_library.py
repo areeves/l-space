@@ -2,14 +2,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from l_space.api.routes import get_store
+from l_space.api.routes import get_library
 from l_space.library import queries
 from l_space.main import create_app
 
 
 def client_for(store) -> TestClient:
     app = create_app()
-    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_library] = lambda: store
     return TestClient(app)
 
 
@@ -27,9 +27,9 @@ def test_series_gaps_route(library, books):
 
 
 def test_import_route_reports_what_changed(books, tmp_path):
-    from stores import new_store
+    from stores import new_library
 
-    store = new_store()
+    store = new_library()
     client = client_for(store)
     sample = str(Path(__file__).parent.parent / "data" / "sample" / "library.csv")
 

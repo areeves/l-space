@@ -84,8 +84,11 @@ books = Table(
     ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
     UniqueConstraint("user_id", "source_id", name="uq_books_user_source"),
     UniqueConstraint("user_id", "public_id", name="uq_books_user_public"),
-    Index("idx_books_duration", "duration_minutes"),
-    Index("idx_books_my_rating", "my_rating"),
+    # Every query filters on user_id first, so the indexes lead with it. (user_id, title) also
+    # serves ORDER BY title without a sort.
+    Index("idx_books_user_title", "user_id", "title"),
+    Index("idx_books_user_duration", "user_id", "duration_minutes"),
+    Index("idx_books_user_my_rating", "user_id", "my_rating"),
     sqlite_autoincrement=True,
 )
 

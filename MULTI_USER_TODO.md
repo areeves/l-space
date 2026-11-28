@@ -299,11 +299,18 @@ dependency returns it. Steps (branches `mu/1-N-...`, PRs with `multi-user` as ba
    owner itself (`_owner_id`, the lowest user id) and its queries are not yet scoped. **Index
    changes moved to step 5** (a new revision `0003`): user-leading indexes only help queries
    that filter on `user_id`, so they land with the queries and their plan tests.
-5. [ ] `mu/1-5-scoped-store`: Alembic `0003` swaps the duration / rating indexes for
-   user-leading ones and adds `(user_id, title)`; split `LibraryStore` (users, `for_user(user_id)`) from
-   `UserLibrary` (every book read and write, always scoped); per-user import; the two-user test
-   fixture; store-level isolation tests, including one that fails if a public book method has
-   no user scope.
+5. [x] `mu/1-5-scoped-store`: `LibraryStore` now holds accounts only (`create_user`,
+   `get_user`, `find_user`, `default_owner`, `delete_user`, and `for_user(user_id)`, which
+   raises `UnknownUser`); every book read and write is on `UserLibrary` / `SqlUserLibrary`,
+   whose queries are all restricted to its user. Revision `0003` swaps the duration / rating
+   indexes for user-leading ones and adds `(user_id, title)`. The counts query now starts from
+   the user's books. The routes and CLI act as the default owner through a `get_library`
+   dependency (step 6 replaces it with `current_user`). Tests: the two-user fixture; isolation
+   tests (separate copies per ASIN, imports and deletes never touch another user, readers
+   discovered from the interface must not leak, the store has no book methods); the shared
+   store fixture now keeps another user's books in the same database, so any unscoped query
+   fails the differential tests; plan tests read the statements the library really runs and
+   require no table scan.
 6. [ ] `mu/1-6-scoped-routes-and-bookout`: `current_user` stand-in; routes and CLI through
    `for_user`; `BookOut`; new `GET /library/books/{public_id}`; route-level isolation tests
    (another user's `public_id` is a 404).
@@ -318,32 +325,32 @@ Decisions (Phase 1):
 - Row-level security stays in the Postgres phase; the library-version counter waits for the
   Phase 3 answer cache, its only consumer.
 
-- [ ] **Schema.** `users` table (`id`, unique casefolded `username`, `password_hash`,
+- [x] **Schema.** `users` table (`id`, unique casefolded `username`, `password_hash`,
   `created_at`, `is_admin`, `disabled`). `books.user_id NOT NULL REFERENCES users(id) ON
   DELETE CASCADE`. Replace `UNIQUE(source_id)` with `UNIQUE(user_id, source_id)`, and add `books.public_id`
   (random, generated on first insert, `UNIQUE(user_id, public_id)`; see D5). Lead the
   indexes with `user_id`: `(user_id, title)` can also serve `ORDER BY title` without the temp
   sort, `(user_id, duration_minutes)`, `(user_id, my_rating)`. Child tables keep `book_id` and
   inherit ownership.
-- [ ] **Migration.** An Alembic revision (after phase 0.5's baseline). A single-user database
+- [x] **Migration.** An Alembic revision (after phase 0.5's baseline). A single-user database
   upgrades by creating one default owner and assigning all existing books to it, with no data
   loss (see section 8).
-- [ ] **Scoped store API.** `LibraryStore.for_user(user_id)`; `replace_all` is replaced by an
+- [x] **Scoped store API.** `LibraryStore.for_user(user_id)`; `replace_all` is replaced by an
   upsert import (next item); `all_books`, `filter_books`, `count_books` all scoped. There
   should be no store method that reads books without a scope.
-- [ ] **Upsert import (D7).** In one transaction, per user: match CSV rows to existing books
+- [x] **Upsert import (D7).** In one transaction, per user: match CSV rows to existing books
   by `source_id`; update changed rows in place (keeping `id` and `public_id`), skip rows whose
   stored `data` blob is identical, insert new rows with a fresh `public_id`, delete the user's
   books that are absent from the CSV (child rows cascade); an updated book's child rows are
   replaced. Duplicate ASINs within one CSV: the last row wins, as today. Return an
   `ImportResult` with added / updated / unchanged / removed counts. Bump the user's library
   version only when something changed.
-- [ ] **Use the store, not lists.** `execute(plan, store)` and
+- [x] **Use the store, not lists.** `execute(plan, store)` and
   `answer_question(question, store, ...)` replace the `books: list[Book]` parameter (this
   also touches `evals/run.py`, `tests/test_ask_pipeline.py` and `tests/test_ask_executor.py`,
   which all pass a `books` list today). `/ask`'s empty-library
   check becomes `count_books()`, not `all_books()`.
-- [ ] **Push down the remaining operations**, each with a differential test against the
+- [x] **Push down the remaining operations**, each with a differential test against the
   pure-Python oracle: `narrator_counts` and `author_counts` as `GROUP BY` over `book_people`
   (ties ordered like `_ranked`: count descending, then name, binary order), `in_progress` as
   `finished = 0`. Keep `series_gaps` in Python (set logic over positions and omnibus ranges)
@@ -352,7 +359,7 @@ Decisions (Phase 1):
 - [ ] **API identifiers (D5).** A `BookOut` response schema: no integer `id`, no `raw`;
   `public_id` and `source_id` as plain fields. Book routes take `public_id` and go through the
   scoped store; another user's `public_id` returns 404.
-- [ ] **Isolation tests** (the most important tests in the project): two users with the same
+- [x] **Isolation tests** (the most important tests in the project): two users with the same
   ASIN; one user's import does not touch the other's books or child rows; every route returns
   only the caller's data; deleting a user cascades to books and child rows; no scoped method
   can be called without a user.

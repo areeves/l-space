@@ -11,7 +11,7 @@ from l_space.ask.executor import Result, execute, render
 from l_space.ask.grounding import ungrounded_terms
 from l_space.ask.plan import QueryPlan
 from l_space.ask.router import route
-from l_space.library.store import LibraryStore
+from l_space.library.store import UserLibrary
 from l_space.models.provider import ModelProvider
 
 WRITER_SYSTEM = """\
@@ -57,7 +57,7 @@ def _writer_prompt(question: str, result: Result) -> str:
 
 def answer_question(
     question: str,
-    store: LibraryStore,
+    library: UserLibrary,
     provider: ModelProvider,
     router: ModelProvider | None = None,
 ) -> Answer:
@@ -84,7 +84,7 @@ def answer_question(
         parts = ["I can't answer that from your library data.", plan.reason, CAPABILITIES]
         return done(" ".join(p for p in parts if p), abstained=True)
 
-    result = execute(plan, store)
+    result = execute(plan, library)
     if result.total == 0:
         return done(render(result), result)
 

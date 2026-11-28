@@ -30,9 +30,9 @@ AGGREGATE_ROWS = [
 
 
 @pytest.fixture(scope="module")
-def store(empty_store):
-    empty_store.import_books([*load_ale_csv(SAMPLE), *EXTRA, *AGGREGATE_ROWS])
-    return empty_store
+def store(empty_library):
+    empty_library.import_books([*load_ale_csv(SAMPLE), *EXTRA, *AGGREGATE_ROWS])
+    return empty_library
 
 
 def scoped(store, f: BookFilter) -> list[Book]:

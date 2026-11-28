@@ -41,15 +41,16 @@ def main() -> None:
     except RuntimeError as exc:
         sys.exit(str(exc))
     store = LibraryStore.from_settings(settings)
+    library = store.for_user(store.default_owner().id)  # until login exists (phase 2)
     if args.command == "import":
-        print(f"Imported {store.import_books(load_ale_csv(args.csv)).summary()}")
+        print(f"Imported {library.import_books(load_ale_csv(args.csv)).summary()}")
     elif args.command == "ask":
-        if store.count_books() == 0:
+        if library.count_books() == 0:
             sys.exit("The library is empty. Run: l-space import <csv>")
         try:
             writer = from_settings(settings)
             answer = answer_question(
-                args.question, store, writer, router_from_settings(settings, writer)
+                args.question, library, writer, router_from_settings(settings, writer)
             )
         except httpx2.HTTPError as exc:
             sys.exit(f"Could not reach the language model at {settings.ollama_url}: {exc}")
@@ -66,8 +67,8 @@ def main() -> None:
             if answer.router_error:
                 print(f"router error: {answer.router_error}")
     elif args.command == "series-gaps":
-        for row in store.series_gaps():
+        for row in library.series_gaps():
             print(f"{row['series']}: missing book(s) {', '.join(map(str, row['missing']))}")
     elif args.command == "narrators":
-        for name, count in store.narrator_counts():
+        for name, count in library.narrator_counts():
             print(f"{count:3d}  {name}")

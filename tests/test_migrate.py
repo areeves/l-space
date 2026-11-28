@@ -61,9 +61,14 @@ def test_a_fresh_database_is_created_at_head(engine):
     assert not needs_migration(engine)
 
 
+def library_of(engine):
+    store = SqlLibraryStore(engine)
+    return store.for_user(store.default_owner().id)
+
+
 def test_migrating_is_idempotent(engine):
     migrate(engine)
-    store = SqlLibraryStore(engine)
+    store = library_of(engine)
     store.import_books(BOOKS)
     migrate(engine)
     assert len(store.all_books()) == len({b.source_id for b in BOOKS})
@@ -173,7 +178,7 @@ def test_an_earlier_release_database_is_adopted_without_reimport(tmp_path, ddl, 
         after = [tuple(r) for r in conn.exec_driver_sql("SELECT id, data FROM books ORDER BY id")]
     assert after == before  # same ids, same blobs
     assert current_revision(engine) == head_revision()
-    store = SqlLibraryStore(engine)
+    store = library_of(engine)
     assert assert_index_matches_blob(store) == len(BOOKS) - 2
     # Exactly the schema of a fresh database, named constraints included.
     fresh = create_db_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
@@ -207,7 +212,7 @@ def test_adoption_is_atomic(tmp_path, monkeypatch):
     ).fetchone()[0] == 0
     raw.close()
     migrate(engine)  # and the next attempt succeeds
-    assert len(SqlLibraryStore(engine).all_books()) == len(BOOKS) - 2
+    assert len(library_of(engine).all_books()) == len(BOOKS) - 2
     engine.dispose()
 
 
@@ -324,7 +329,7 @@ def test_upgrading_a_populated_database_keeps_every_book_and_child_row(engine):
     public_ids = [public_id for _, public_id in rows]
     assert len(set(public_ids)) == len(public_ids) == len(before["books"])
     assert all(len(p) >= 16 for p in public_ids)
-    assert assert_index_matches_blob(SqlLibraryStore(engine)) == len(before["books"])
+    assert assert_index_matches_blob(library_of(engine)) == len(before["books"])
 
 
 def test_the_upgraded_schema_is_the_fresh_one(engine, tmp_path):
@@ -340,7 +345,7 @@ def test_ids_are_not_reused_after_the_upgrade(engine):
     baseline_database(engine)
     seq_before = snapshot(engine)["sequence"][0][0]
     migrate(engine)
-    store = SqlLibraryStore(engine)
+    store = library_of(engine)
     store.import_books([*store.all_books(), Book(source_id="NEW", title="New")])
     with engine.connect() as conn:
         new_id = conn.exec_driver_sql("SELECT id FROM books WHERE source_id = 'NEW'").scalar()
